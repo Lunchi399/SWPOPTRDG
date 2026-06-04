@@ -26,9 +26,11 @@ urlpatterns = [
     path('reclamos/',                  views.reclamos,           name='reclamos'),
     path('historial-pedidos/',         views.historial_pedidos,  name='historial-pedidos'),
 
+    path('pedidos/<int:pk>/estado/', views.cambiar_estado_pedido, name='cambiar-estado'),
+
     #── Paquete 5: Caja───────────────────────────────────────
     path('pedidos-por-mesa/',  views.pedidos_por_mesa, name='pedidos-por-mesa'),
-    path('pagos/',             views.registrar_pago,   name='registrar-pago'),
+    path('boletas/',      views.registrar_boleta, name='registrar-boleta'),
     path('cuadre-caja/',       views.cuadre_caja,      name='cuadre-caja'),
 
 ]

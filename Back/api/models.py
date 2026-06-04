@@ -1,46 +1,124 @@
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import BaseUserManager
+from django.contrib.auth.base_user import AbstractBaseUser
+from django.contrib.auth.models import PermissionsMixin
 from django.db import models
 
+class UsuarioManager(BaseUserManager):
+    def get_by_natural_key(self, username):
+        return self.get(username=username)
 
-class Usuario(AbstractUser):
+    def create_user(self, username, password=None, **extra):
+        user = self.model(username=username, **extra)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, username, password=None, **extra):
+        extra.setdefault('is_superuser', True)
+        extra.setdefault('Activo', True)
+        extra.setdefault('Rol', 'administrador')
+        return self.create_user(username, password, **extra)
+
+
+class Usuario(models.Model):
     ROL_CHOICES = [
         ('administrador', 'Administrador'),
         ('mesero',        'Mesero/a'),
         ('cocinero',      'Cocinero/a'),
         ('cajero',        'Cajero/a'),
     ]
-    rol            = models.CharField(max_length=20, choices=ROL_CHOICES,
-                                      default='mesero')
-    activo         = models.BooleanField(default=True)
-    fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    id             = models.AutoField(primary_key=True)
+    Password       = models.CharField(max_length=255, db_column='password')
+    last_login     = models.DateTimeField(null=True, blank=True)
+    is_superuser   = models.BooleanField(default=False)
+    username       = models.CharField(max_length=150, unique=True,
+                                      db_column='Usuario')
+    Nombre         = models.CharField(max_length=150, blank=True,
+                                      db_column='Nombre')
+    Apellido       = models.CharField(max_length=150, blank=True,
+                                      db_column='Apellido')
+    email          = models.EmailField(blank=True, db_column='email')
+    Activo         = models.BooleanField(default=True, db_column='Activo')
+    Rol            = models.CharField(max_length=20, choices=ROL_CHOICES,
+                                      default='mesero', db_column='Rol')
+    Fecha_creacion = models.DateTimeField(auto_now_add=True,
+                                          db_column='Fecha_creacion')
+
+    # Propiedades que Django necesita
+    @property
+    def is_authenticated(self):
+        return True
+
+    @property
+    def is_anonymous(self):
+        return False
+
+    @property
+    def is_active(self):
+        return self.Activo
+
+    @property
+    def is_staff(self):
+        return self.is_superuser
+
+    @property
+    def rol(self):
+        return self.Rol
+
+    @property
+    def first_name(self):
+        return self.Nombre
+
+    @property
+    def last_name(self):
+        return self.Apellido
+
+    # Para que JWT funcione
+    @property
+    def pk(self):
+        return self.id
+
+    def check_password(self, raw_password):
+        from django.contrib.auth.hashers import check_password
+        return check_password(raw_password, self.Password)
+
+    def set_password(self, raw_password):
+        from django.contrib.auth.hashers import make_password
+        self.Password = make_password(raw_password)
+
+    def has_perm(self, perm, obj=None):
+        return self.is_superuser
+
+    def has_module_perms(self, app_label):
+        return self.is_superuser
+
+    objects = UsuarioManager()
+
+    REQUIRED_FIELDS = []
+    USERNAME_FIELD  = 'username'
 
     class Meta:
-        db_table       = 'usuario'
-        verbose_name   = 'Usuario'
+        db_table = 'Usuario'
+        managed  = False
 
     def __str__(self):
-        return f"{self.username} ({self.rol})"
+        return f"{self.Nombre} {self.Apellido} ({self.Rol})"
 
 
 class Producto(models.Model):
-    CATEGORIA_CHOICES = [
-        ('entrada',  'Entrada'),
-        ('segundo',  'Segundo'),
-        ('bebida',   'Bebida'),
-        ('postre',   'Postre'),
-    ]
-    # coincide exactamente con tu tabla 'producto'
-    id_producto  = models.AutoField(primary_key=True)
-    nombre       = models.CharField(max_length=150)
-    descripcion  = models.TextField(blank=True, null=True)
-    precio       = models.DecimalField(max_digits=10, decimal_places=2)
-    disponible   = models.BooleanField(default=True)
-    imagen_url   = models.CharField(max_length=255, blank=True, null=True)
-    categoria    = models.CharField(max_length=50, choices=CATEGORIA_CHOICES)
-    stock        = models.IntegerField(default=0)
+    id_producto = models.AutoField(primary_key=True)
+    nombre      = models.CharField(max_length=150)
+    descripcion = models.CharField(max_length=255, blank=True, null=True)
+    precio      = models.DecimalField(max_digits=10, decimal_places=2)
+    categoria   = models.CharField(max_length=50)
+    stock       = models.IntegerField(default=0)
+    # disponible no está en tu diagrama pero lo dejamos para la lógica
+    disponible  = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'producto'
+        managed  = False
         ordering = ['categoria', 'nombre']
 
     def __str__(self):
@@ -49,139 +127,129 @@ class Producto(models.Model):
 
 class Mesas(models.Model):
     ESTADO_CHOICES = [
-        ('libre',    'Libre'),
-        ('ocupada',  'Ocupada'),
-        ('unida',    'Unida'),
-        ('reservada','Reservada'),
+        ('libre',     'Libre'),
+        ('ocupada',   'Ocupada'),
+        ('unida',     'Unida'),
+        ('reservada', 'Reservada'),
     ]
-    # coincide exactamente con tu tabla 'mesas'
-    id_mesa           = models.AutoField(primary_key=True)
+    id_mesa            = models.AutoField(primary_key=True)
     identificador_mesa = models.CharField(max_length=50)
-    capacidad         = models.IntegerField(default=4)
-    estado            = models.CharField(max_length=20,
-                                         choices=ESTADO_CHOICES,
-                                         default='libre')
+    capacidad          = models.IntegerField(default=4)
+    estado             = models.CharField(max_length=20,
+                                          choices=ESTADO_CHOICES,
+                                          default='libre')
 
     class Meta:
-        db_table = 'mesas'
+        db_table = 'mesas'    # ← tu diagrama dice "Mesa" no "Mesas"
+        managed  = False
         ordering = ['identificador_mesa']
 
     def __str__(self):
-        return f"Mesa {self.identificador_mesa} — {self.estado}"
+        return f"Mesas {self.identificador_mesa} — {self.estado}"
 
 
 class Pedido(models.Model):
     ESTADO_CHOICES = [
-        ('borrador',   'Borrador'),
-        ('confirmado', 'Confirmado'),
+        ('confirmar', 'Confirmar'),
         ('en_cocina',  'En cocina'),
         ('listo',      'Listo'),
-        ('despachado', 'Despachado'),
-        ('pagado',     'Pagado'),
-        ('cancelado',  'Cancelado'),
-        ('anulado',    'Anulado'),
+        ('despachar', 'Despachado'),
+        ('completar',     'Pagado'),
+        ('cancelar',  'Cancelado'),
+        
     ]
-    # coincide exactamente con tu tabla 'pedido'
+    # Campos exactos del diagrama
     id_pedidos          = models.AutoField(primary_key=True)
     estado              = models.CharField(max_length=20,
-                                           choices=ESTADO_CHOICES,
-                                           default='borrador')
-    observaciones       = models.CharField(max_length=255, blank=True, null=True)
+                                          choices=ESTADO_CHOICES,
+                                          default='borrador')
     tiempo_creacion     = models.DateTimeField(auto_now_add=True)
-    tiempo_finalizacion = models.DateTimeField(null=True, blank=True)
-    id_mesa             = models.ForeignKey(Mesas, on_delete=models.SET_NULL,
-                                            null=True, blank=True,
-                                            db_column='id_mesa',
-                                            related_name='pedidos')
-    id_usuario          = models.ForeignKey(Usuario, on_delete=models.SET_NULL,
-                                            null=True,
-                                            db_column='id_usuario',
-                                            related_name='pedidos')
-
+    tiempo_modificacion = models.DateTimeField(auto_now=True)
+    observaciones       = models.CharField(max_length=255,
+                                          blank=True, null=True)
+    id_mesa    = models.ForeignKey(Mesas, on_delete=models.SET_NULL,
+                                   null=True, blank=True,
+                                   db_column='id_mesa',
+                                   related_name='pedidos')
+    id_usuario = models.ForeignKey(Usuario, on_delete=models.SET_NULL,
+                                   null=True,
+                                   db_column='id',
+                                   related_name='pedidos')
     class Meta:
         db_table = 'pedido'
+        managed  = False
         ordering = ['-tiempo_creacion']
-
-    def __str__(self):
-        return f"Pedido #{self.id_pedidos} — {self.estado}"
 
     @property
     def total(self):
-        return sum(d.precio_unitario * d.cantidad
-                   for d in self.detalles.all())
+        return sum(
+            d.cantidad * d.id_producto.precio
+            for d in self.detalles.all()
+            if d.id_producto
+        )
 
 
 class DetallePedido(models.Model):
-    # coincide exactamente con tu tabla 'detalle_pedido'
-    id_detalle    = models.AutoField(primary_key=True)
-    cantidad      = models.IntegerField(default=1)
-    precio_unitario = models.DecimalField(max_digits=10, decimal_places=2)
-    id_pedido     = models.ForeignKey(Pedido, on_delete=models.CASCADE,
-                                      db_column='id_pedido',
-                                      related_name='detalles')
-    id_producto   = models.ForeignKey(Producto, on_delete=models.SET_NULL,
-                                      null=True, db_column='id_producto',
-                                      related_name='detalles')
+    # Campos exactos del diagrama
+    id_detalle  = models.AutoField(primary_key=True)
+    cantidad    = models.IntegerField(default=1)
+    id_pedido   = models.ForeignKey(Pedido, on_delete=models.CASCADE,
+                                    db_column='id_pedidos',
+                                    related_name='detalles')
+    id_producto = models.ForeignKey(Producto, on_delete=models.SET_NULL,
+                                    null=True,
+                                    db_column='id_producto',
+                                    related_name='detalles')
 
     class Meta:
         db_table = 'detalle_pedido'
+        managed  = False
 
     @property
     def subtotal(self):
-        return self.cantidad * self.precio_unitario
+        if self.id_producto:
+            return self.cantidad * self.id_producto.precio
+        return 0
 
 
-class Pago(models.Model):
-    METODO_CHOICES = [
-        ('efectivo', 'Efectivo'),
-        ('yape',     'Yape'),
-        ('plin',     'Plin'),
-        ('tarjeta',  'Tarjeta'),
-    ]
-    ESTADO_CHOICES = [
-        ('pendiente', 'Pendiente'),
-        ('completado','Completado'),
-        ('anulado',   'Anulado'),
-    ]
-    # coincide exactamente con tu tabla 'pago'
-    id_pago        = models.AutoField(primary_key=True)
-    monto_total    = models.DecimalField(max_digits=10, decimal_places=2)
-    monto_recibido = models.DecimalField(max_digits=10, decimal_places=2,
-                                         null=True, blank=True)
-    vuelto         = models.DecimalField(max_digits=10, decimal_places=2,
-                                         null=True, blank=True)
-    metodo_pago    = models.CharField(max_length=20, choices=METODO_CHOICES)
-    estado         = models.CharField(max_length=20, choices=ESTADO_CHOICES,
-                                      default='pendiente')
-    fecha_cobro    = models.DateTimeField(auto_now_add=True)
-    id_usuario     = models.ForeignKey(Usuario, on_delete=models.SET_NULL,
-                                       null=True, db_column='id_usuario',
-                                       related_name='pagos')
-    id_pedido      = models.ForeignKey(Pedido, on_delete=models.SET_NULL,
-                                       null=True, db_column='id_pedido',
-                                       related_name='pagos')
+class Boleta(models.Model):
+    # Reemplaza a Pago — campos exactos del diagrama
+    id_boleta   = models.AutoField(primary_key=True)
+    vuelto      = models.DecimalField(max_digits=10, decimal_places=2,
+                                      null=True, blank=True)
+    fecha_cobro = models.DateTimeField(auto_now_add=True)
+    id_usuario  = models.ForeignKey(Usuario, on_delete=models.SET_NULL,
+                                    null=True,
+                                    db_column='id',
+                                    related_name='boletas')
+    id_pedido   = models.ForeignKey(Pedido, on_delete=models.SET_NULL,
+                                    null=True,
+                                    db_column='id_pedidos',
+                                    related_name='boletas')
 
     class Meta:
-        db_table = 'pago'
+        db_table = 'Boleta'
+        managed  = False
         ordering = ['-fecha_cobro']
 
     def __str__(self):
-        return f"Pago #{self.id_pago} — {self.metodo_pago} — S/. {self.monto_total}"
+        return f"Boleta #{self.id_boleta} — {self.fecha_cobro}"
 
 
-class DetallePago(models.Model):
-    # coincide exactamente con tu tabla 'detalle_pago'
-    id_detalle_pago = models.AutoField(primary_key=True)
-    nombre_producto = models.CharField(max_length=150)
-    cantidad        = models.IntegerField()
-    precio_unitario = models.DecimalField(max_digits=10, decimal_places=2)
-    subtotal        = models.DecimalField(max_digits=10, decimal_places=2)
-    id_pago         = models.ForeignKey(Pago, on_delete=models.CASCADE,
-                                        db_column='id_pago',
-                                        related_name='detalles_pago')
+class DetalleBoleta(models.Model):
+    # Reemplaza a DetallePago — campos exactos del diagrama
+    id_detalle_boleta = models.AutoField(primary_key=True)
+    subtotal          = models.DecimalField(max_digits=10, decimal_places=2)
+    total             = models.DecimalField(max_digits=10, decimal_places=2)
+    producto          = models.CharField(max_length=150)  # nombre del producto
+    cantidad_producto = models.IntegerField()
+    id_boleta         = models.ForeignKey(Boleta, on_delete=models.CASCADE,
+                                          db_column='id_boleta',
+                                          related_name='detalles_boleta')
 
     class Meta:
-        db_table = 'detalle_pago'
+        db_table = 'detalle_boleta'
+        managed  = False
 
 
 class Reclamo(models.Model):
@@ -190,25 +258,28 @@ class Reclamo(models.Model):
         ('sugerencia', 'Sugerencia'),
     ]
     ESTADO_CHOICES = [
-        ('pendiente',  'Pendiente'),
-        ('revisado',   'Revisado'),
-        ('resuelto',   'Resuelto'),
+        ('pendiente', 'Pendiente'),
+        ('revisado',  'Revisado'),
+        ('resuelto',  'Resuelto'),
     ]
-    # coincide exactamente con tu tabla 'reclamo'
+    # Campos exactos del diagrama
     id_reclamo      = models.AutoField(primary_key=True)
     tipo            = models.CharField(max_length=20, choices=TIPO_CHOICES)
     descripcion     = models.CharField(max_length=255)
-    estado          = models.CharField(max_length=20, choices=ESTADO_CHOICES,
-                                       default='pendiente')
     tiempo_creacion = models.DateTimeField(auto_now_add=True)
-    id_pedido       = models.ForeignKey(Pedido, on_delete=models.SET_NULL,
-                                        null=True, blank=True,
-                                        db_column='id_pedido',
-                                        related_name='reclamos')
-    id_usuario      = models.ForeignKey(Usuario, on_delete=models.SET_NULL,
-                                        null=True, db_column='id_usuario',
-                                        related_name='reclamos')
+    estado          = models.CharField(max_length=20,
+                                       choices=ESTADO_CHOICES,
+                                       default='pendiente')
+    id_pedido  = models.ForeignKey(Pedido, on_delete=models.SET_NULL,
+                                   null=True, blank=True,
+                                   db_column='id_pedido',
+                                   related_name='reclamos')
+    id_usuario = models.ForeignKey(Usuario, on_delete=models.SET_NULL,
+                                   null=True,
+                                   db_column='id',
+                                   related_name='reclamos')
 
     class Meta:
         db_table = 'reclamo'
+        managed  = False
         ordering = ['-tiempo_creacion']

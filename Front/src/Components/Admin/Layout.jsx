@@ -27,7 +27,8 @@ export default function Layout({ children }) {
           <div style={s.brandIcon}>DG</div>
           <div>
             <div style={s.brandName}>Don George</div>
-            <div style={s.brandRole}>Administrador</div>
+            <div style={s.brandRole}>{usuario?.Rol || usuario?.rol}</div>
+           
           </div>
         </div>
 
@@ -52,7 +53,7 @@ export default function Layout({ children }) {
             </div>
             <div>
               <div style={s.userName}>{usuario?.username}</div>
-              <div style={s.userRol}>{usuario?.rol}</div>
+              <span style={s.userRol}>{usuario?.Rol || usuario?.rol}</span>
             </div>
           </div>
           <button style={s.logoutBtn} onClick={handleLogout}>

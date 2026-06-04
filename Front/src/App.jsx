@@ -5,11 +5,20 @@ import Usuarios   from './pages/admin/Usuarios';
 import Productos  from './pages/admin/Productos';
 import Mesas      from './pages/admin/Mesas';
 import Reclamos   from './pages/admin/Reclamos';
-import MesasMesero from './pages/mesero/Mesas';
-import { isAuthenticated } from './services/authService';
 
-function RutaPrivada({ children }) {
-  return isAuthenticated() ? children : <Navigate to="/login" />;
+import MeseroIndex from './pages/mesero/Index';
+import { isAuthenticated } from './Services/authService';
+import { getRol } from './Services/authService';
+
+function RutaPrivada({ children, rolRequerido }) {
+  if (!isAuthenticated()) return <Navigate to="/login" />;
+
+  if (rolRequerido) {
+    const rol = getRol();
+    if (rol !== rolRequerido) return <Navigate to="/login" />;
+  }
+
+  return children;
 }
 
 function App() {
@@ -18,21 +27,51 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
 
-        {/* Admin */}
+        {/* Admin — solo administrador puede entrar */}
         <Route path="/admin/dashboard"
-          element={<RutaPrivada><Dashboard /></RutaPrivada>} />
+          element={
+            <RutaPrivada rolRequerido="administrador">
+              <Dashboard />
+            </RutaPrivada>
+          }
+        />
         <Route path="/admin/usuarios"
-          element={<RutaPrivada><Usuarios /></RutaPrivada>} />
+          element={
+            <RutaPrivada rolRequerido="administrador">
+              <Usuarios />
+            </RutaPrivada>
+          }
+        />
         <Route path="/admin/productos"
-          element={<RutaPrivada><Productos /></RutaPrivada>} />
+          element={
+            <RutaPrivada rolRequerido="administrador">
+              <Productos />
+            </RutaPrivada>
+          }
+        />
         <Route path="/admin/mesas"
-          element={<RutaPrivada><Mesas /></RutaPrivada>} />
+          element={
+            <RutaPrivada rolRequerido="administrador">
+              <Mesas />
+            </RutaPrivada>
+          }
+        />
         <Route path="/admin/reclamos"
-          element={<RutaPrivada><Reclamos /></RutaPrivada>} />
+          element={
+            <RutaPrivada rolRequerido="administrador">
+              <Reclamos />
+            </RutaPrivada>
+          }
+        />
 
         {/* Mesero */}
         <Route path="/mesero/mesas"
-          element={<RutaPrivada><MesasMesero /></RutaPrivada>} />
+          element={
+            <RutaPrivada rolRequerido="mesero">
+              <MeseroIndex />
+            </RutaPrivada>
+          }
+        />
 
         <Route path="/" element={<Navigate to="/login" />} />
       </Routes>

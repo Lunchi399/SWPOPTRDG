@@ -5,14 +5,16 @@ from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.utils import timezone
+from api.backends import UsuarioBackend
 
 from .models import (Usuario, Producto, Mesas, Pedido,
-                     DetallePedido, Pago, DetallePago, Reclamo)
+                     DetallePedido, Boleta, DetalleBoleta, Reclamo)
+
 from .serializers import (UsuarioSerializer, CrearUsuarioSerializer,
                            EditarUsuarioSerializer, ProductoSerializer,
                            MesaSerializer, PedidoSerializer,
-                           PagoSerializer, ReclamoSerializer)
-from .permissions import EsAdministrador
+                           BoletaSerializer, ReclamoSerializer)
+from .permissions import EsAdministrador, EsMesero, EsCocinero, EsCajero
 
 
 # ══════════════════════════════════════════════════════════════
@@ -32,7 +34,10 @@ def login(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    usuario = authenticate(username=username, password=password)
+    # Usar nuestro backend personalizado
+    backend  = UsuarioBackend()
+    usuario  = backend.authenticate(request, username=username,
+                                    password=password)
 
     if not usuario:
         return Response(
@@ -40,12 +45,14 @@ def login(request):
             status=status.HTTP_401_UNAUTHORIZED
         )
 
-    if not usuario.activo:
+    if not usuario.Activo:
         return Response(
-            {'error': 'Usuario desactivado. Contacte al administrador'},
+            {'error': 'Usuario desactivado'},
             status=status.HTTP_403_FORBIDDEN
         )
 
+    # Generar token JWT
+    from rest_framework_simplejwt.tokens import RefreshToken
     refresh = RefreshToken.for_user(usuario)
 
     return Response({
@@ -53,7 +60,6 @@ def login(request):
         'refresh': str(refresh),
         'usuario': UsuarioSerializer(usuario).data
     }, status=status.HTTP_200_OK)
-
 
 # CU02 — Cerrar sesión
 @api_view(['POST'])
@@ -83,15 +89,21 @@ def logout(request):
 @permission_classes([EsAdministrador])
 def usuarios(request):
     if request.method == 'GET':
-        lista = Usuario.objects.all().order_by('rol', 'username')
+        lista = Usuario.objects.all().order_by('Rol', 'username')
         return Response(UsuarioSerializer(lista, many=True).data)
 
     if request.method == 'POST':
         serializer = CrearUsuarioSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {'mensaje': 'Usuario creado correctamente'},
+                status=status.HTTP_201_CREATED
+            )
+        # Muestra el error exacto
+        print('Errores:', serializer.errors)
+        return Response(serializer.errors,
+                        status=status.HTTP_400_BAD_REQUEST)
 
 
 # CU03 — Editar y eliminar usuario
@@ -146,7 +158,7 @@ def productos(request):
         return Response(ProductoSerializer(qs, many=True).data)
 
     if request.method == 'POST':
-        if request.user.rol != 'administrador':
+        if request.user.Rol != 'administrador':
             return Response({'error': 'Solo el administrador puede agregar productos'},
                             status=status.HTTP_403_FORBIDDEN)
         serializer = ProductoSerializer(data=request.data)
@@ -169,7 +181,7 @@ def producto_detalle(request, pk):
     if request.method == 'GET':
         return Response(ProductoSerializer(producto).data)
 
-    if request.user.rol != 'administrador':
+    if request.user.Rol != 'administrador':
         return Response({'error': 'Sin permisos'},
                         status=status.HTTP_403_FORBIDDEN)
 
@@ -204,7 +216,7 @@ def mesas(request):
         return Response(MesaSerializer(qs, many=True).data)
 
     if request.method == 'POST':
-        if request.user.rol != 'administrador':
+        if request.user.Rol != 'administrador':
             return Response({'error': 'Sin permisos'},
                             status=status.HTTP_403_FORBIDDEN)
         serializer = MesaSerializer(data=request.data)
@@ -219,15 +231,15 @@ def mesas(request):
 @permission_classes([IsAuthenticated])
 def mesa_detalle(request, pk):
     try:
-        mesa = Mesas.objects.get(pk=pk)
-    except Mesas.DoesNotExist:
+        mesa = Boleta.objects.get(pk=pk)
+    except Boleta.DoesNotExist:
         return Response({'error': 'Mesa no encontrada'},
                         status=status.HTTP_404_NOT_FOUND)
 
     if request.method == 'GET':
         return Response(MesaSerializer(mesa).data)
 
-    if request.user.rol != 'administrador':
+    if request.user.Rol != 'administrador':
         return Response({'error': 'Sin permisos'},
                         status=status.HTTP_403_FORBIDDEN)
 
@@ -256,10 +268,10 @@ def dashboard(request):
         'fecha': str(timezone.now().date()),
         'usuarios': {
             'total':           Usuario.objects.count(),
-            'administradores': Usuario.objects.filter(rol='administrador').count(),
-            'meseros':         Usuario.objects.filter(rol='mesero').count(),
-            'cocineros':       Usuario.objects.filter(rol='cocinero').count(),
-            'cajeros':         Usuario.objects.filter(rol='cajero').count(),
+            'administradores': Usuario.objects.filter(Rol='administrador').count(),
+            'meseros':         Usuario.objects.filter(Rol='mesero').count(),
+            'cocineros':       Usuario.objects.filter(Rol='cocinero').count(),
+            'cajeros':         Usuario.objects.filter(Rol='cajero').count(),
         },
         'productos': {
             'total':       Producto.objects.count(),
@@ -276,15 +288,14 @@ def dashboard(request):
             'ocupadas': Mesas.objects.filter(estado='ocupada').count(),
         },
         'pedidos': {
-            'total':      Pedido.objects.count(),
-            'en_cocina':  Pedido.objects.filter(estado='en_cocina').count(),
-            'listos':     Pedido.objects.filter(estado='listo').count(),
-            'despachados':Pedido.objects.filter(estado='despachado').count(),
+            'total':       Pedido.objects.count(),
+            'en_cocina':   Pedido.objects.filter(estado='en_cocina').count(),
+            'listos':      Pedido.objects.filter(estado='listo').count(),
+            'despachados': Pedido.objects.filter(estado='despachado').count(),
         },
         'pagos': {
-            'total_hoy': Pago.objects.filter(
-                fecha_cobro__date=timezone.now().date(),
-                estado='completado'
+            'total_hoy': Boleta.objects.filter(
+                fecha_cobro__date=timezone.now().date()
             ).count(),
         },
         'reclamos': {
@@ -292,7 +303,6 @@ def dashboard(request):
         }
     }
     return Response(resumen)
-
 
 # ══════════════════════════════════════════════════════════════
 # PAQUETE 3 — Mesero
@@ -355,7 +365,7 @@ def desunir_mesa(request, pk):
 @permission_classes([IsAuthenticated])
 def pedidos(request):
     if request.method == 'GET':
-        rol = request.user.rol
+        rol = request.user.Rol
         if rol == 'mesero':
             qs = Pedido.objects.filter(
                 id_usuario=request.user
@@ -414,6 +424,64 @@ def pedidos(request):
 
 
 # CU08/CU09/CU10 — Ver, editar, confirmar, despachar y cancelar pedido
+# Vista para que el cocinero cambie estados
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def cambiar_estado_pedido(request, pk):
+    try:
+        pedido = Pedido.objects.get(pk=pk)
+    except Pedido.DoesNotExist:
+        return Response({'error': 'Pedido no encontrado'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    accion = request.data.get('accion')
+    rol    = request.user.Rol
+
+    TRANSICIONES = {
+        'confirmar':  ('borrador',    'confirmado', ['mesero', 'administrador']),
+        'en_cocina':  ('confirmado',  'en_cocina',  ['cocinero', 'administrador']),
+        'listo':      ('en_cocina',   'listo',      ['cocinero', 'administrador']),
+        'despachar':  ('listo',       'despachado', ['mesero', 'administrador']),
+        'completar':  ('despachado',  'pagado',     ['cajero', 'administrador']),
+        'cancelar':   (None,          'cancelado',  ['mesero', 'administrador']),
+    }
+
+    if accion not in TRANSICIONES:
+        return Response({'error': 'Acción no válida'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    estado_requerido, estado_nuevo, roles_permitidos = TRANSICIONES[accion]
+
+    if rol not in roles_permitidos:
+        return Response({'error': f'Tu rol no puede ejecutar esta acción'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    if estado_requerido and pedido.estado != estado_requerido:
+        return Response(
+            {'error': f'El pedido debe estar en estado "{estado_requerido}"'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # No cancelar si ya está en cocina
+    if accion == 'cancelar' and pedido.estado in ('en_cocina', 'listo', 'despachado', 'pagado'):
+        return Response(
+            {'error': 'No se puede cancelar: solicita anulación al administrador'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    pedido.estado = estado_nuevo
+    pedido.save()
+
+    # Liberar mesa si se cancela
+    if accion == 'cancelar' and pedido.id_mesa:
+        pedido.id_mesa.estado = 'libre'
+        pedido.id_mesa.save()
+
+    return Response({
+        'mensaje': f'Pedido actualizado a: {estado_nuevo}',
+        'pedido':  PedidoSerializer(pedido).data
+    })
+
 @api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def pedido_detalle(request, pk):
@@ -536,8 +604,8 @@ def pedido_detalle(request, pk):
 @permission_classes([IsAuthenticated])
 def finalizar_servicio(request, pk):
     try:
-        mesa = Mesas.objects.get(pk=pk)
-    except Mesas.DoesNotExist:
+        mesa = mesas.objects.get(pk=pk)
+    except mesas.DoesNotExist:
         return Response({'error': 'Mesa no encontrada'},
                         status=status.HTTP_404_NOT_FOUND)
 
@@ -563,7 +631,7 @@ def finalizar_servicio(request, pk):
 @permission_classes([IsAuthenticated])
 def reclamos(request):
     if request.method == 'GET':
-        if request.user.rol == 'administrador':
+        if request.user.Rol == 'administrador':
             qs = Reclamo.objects.all()
         else:
             qs = Reclamo.objects.filter(id_usuario=request.user)
@@ -581,7 +649,7 @@ def reclamos(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def historial_pedidos(request):
-    if request.user.rol == 'mesero':
+    if request.user.Rol == 'mesero':
         qs = Pedido.objects.filter(id_usuario=request.user)
     else:
         qs = Pedido.objects.all()
@@ -598,15 +666,26 @@ def historial_pedidos(request):
 def pedidos_por_mesa(request):
     qs = Pedido.objects.filter(
         estado='despachado'
-    ).select_related('id_mesa', 'id_usuario')
+    ).select_related('id_mesa', 'id')
     return Response(PedidoSerializer(qs, many=True).data)
 
 
 # CU15/CU16 — Registrar pago
+# CU15 — Ver pedidos despachados listos para cobrar
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def pedidos_por_mesa(request):
+    qs = Pedido.objects.filter(
+        estado='despachado'
+    ).select_related('id_mesa', 'id')
+    return Response(PedidoSerializer(qs, many=True).data)
+
+
+# CU15/CU16 — Registrar boleta (antes registrar_pago)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def registrar_pago(request):
-    if request.user.rol not in ('cajero', 'administrador'):
+def registrar_boleta(request):
+    if request.user.Rol not in ('cajero', 'administrador'):
         return Response({'error': 'Sin permisos'},
                         status=status.HTTP_403_FORBIDDEN)
 
@@ -623,47 +702,53 @@ def registrar_pago(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Calcular total
-    monto_total    = pedido.total
-    monto_recibido = float(request.data.get('monto_recibido', monto_total))
-    vuelto         = round(monto_recibido - float(monto_total), 2)
+    # Calcular total desde los detalles del pedido
+    detalles  = pedido.detalles.all()
+    total     = sum(d.cantidad * d.id_producto.precio
+                    for d in detalles if d.id_producto)
+
+    monto_recibido = float(request.data.get('monto_recibido', total))
+    vuelto         = round(monto_recibido - float(total), 2)
 
     if vuelto < 0:
         return Response(
-            {'error': f'Monto insuficiente. Total a pagar: S/. {monto_total}'},
+            {'error': f'Monto insuficiente. Total a pagar: S/. {total}'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Crear pago
-    pago = Pago.objects.create(
-        monto_total    = monto_total,
-        monto_recibido = monto_recibido,
-        vuelto         = vuelto,
-        metodo_pago    = request.data.get('metodo_pago', 'efectivo'),
-        estado         = 'completado',
-        id_usuario     = request.user,
-        id_pedido      = pedido,
+    # Crear boleta
+    boleta = Boleta.objects.create(
+        vuelto     = vuelto,
+        id_usuario = request.user,
+        id_pedido  = pedido,
     )
 
-    # Crear detalle del pago
-    for detalle in pedido.detalles.all():
-        DetallePago.objects.create(
-            id_pago         = pago,
-            nombre_producto = detalle.id_producto.nombre,
-            cantidad        = detalle.cantidad,
-            precio_unitario = detalle.precio_unitario,
-            subtotal        = detalle.subtotal,
-        )
+    # Crear detalle de boleta por cada ítem del pedido
+    for d in detalles:
+        if d.id_producto:
+            subtotal = d.cantidad * d.id_producto.precio
+            DetalleBoleta.objects.create(
+                id_boleta        = boleta,
+                producto         = d.id_producto.nombre,
+                cantidad_producto= d.cantidad,
+                subtotal         = subtotal,
+                total            = total,
+            )
 
-    # Actualizar estado del pedido
+    # Actualizar estado del pedido a pagado
     pedido.estado = 'pagado'
     pedido.save()
 
+    # Liberar la mesa
+    if pedido.id_mesa:
+        pedido.id_mesa.estado = 'libre'
+        pedido.id_mesa.save()
+
     return Response({
-        'mensaje':      'Pago registrado correctamente',
-        'pago':         PagoSerializer(pago).data,
-        'vuelto':       vuelto,
-        'monto_total':  str(monto_total),
+        'mensaje': 'Boleta registrada correctamente',
+        'boleta':  BoletaSerializer(boleta).data,
+        'vuelto':  vuelto,
+        'total':   str(total),
     }, status=status.HTTP_201_CREATED)
 
 
@@ -671,31 +756,26 @@ def registrar_pago(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def cuadre_caja(request):
-    if request.user.rol not in ('cajero', 'administrador'):
+    if request.user.Rol not in ('cajero', 'administrador'):
         return Response({'error': 'Sin permisos'},
                         status=status.HTTP_403_FORBIDDEN)
 
-    hoy   = timezone.now().date()
-    pagos = Pago.objects.filter(
-        fecha_cobro__date=hoy,
-        estado='completado'
-    )
+    hoy     = timezone.now().date()
+    boletas = Boleta.objects.filter(fecha_cobro__date=hoy)
+
+    # Calcular total vendido sumando los totales de cada detalle
+    total_ventas = 0
+    for b in boletas:
+        primer_detalle = b.detalles_boleta.first()
+        if primer_detalle:
+            total_ventas += primer_detalle.total
 
     resumen = {
-        'fecha':         str(hoy),
-        'total_ventas':  sum(p.monto_total for p in pagos),
-        'por_metodo': {
-            'efectivo': sum(p.monto_total for p in pagos
-                            if p.metodo_pago == 'efectivo'),
-            'yape':     sum(p.monto_total for p in pagos
-                            if p.metodo_pago == 'yape'),
-            'plin':     sum(p.monto_total for p in pagos
-                            if p.metodo_pago == 'plin'),
-            'tarjeta':  sum(p.monto_total for p in pagos
-                            if p.metodo_pago == 'tarjeta'),
-        },
-        'total_transacciones': pagos.count(),
-        'pagos': PagoSerializer(pagos, many=True).data,
+        'fecha':               str(hoy),
+        'total_ventas':        total_ventas,
+        'total_transacciones': boletas.count(),
+        'total_vuelto':        sum(b.vuelto for b in boletas if b.vuelto),
+        'boletas':             BoletaSerializer(boletas, many=True).data,
     }
     return Response(resumen)
 @api_view(['PATCH'])

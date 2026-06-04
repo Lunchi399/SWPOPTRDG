@@ -1,26 +1,34 @@
 import api from './api';
 
-const getAuthHeader = () => ({
+const auth = () => ({
   headers: { Authorization: `Bearer ${localStorage.getItem('access')}` }
 });
 
 // Mesas
-export const getMesas         = ()         => api.get('/mesas/', getAuthHeader());
-export const unirMesas        = (data)     => api.post('/mesas/unir/', data, getAuthHeader());
-export const desunirMesa      = (id)       => api.post(`/mesas/${id}/desunir/`, {}, getAuthHeader());
-export const finalizarServicio= (id)       => api.post(`/mesas/${id}/finalizar/`, {}, getAuthHeader());
+export const getMesas          = ()     => api.get('/mesas/', auth());
+export const unirMesas         = (data) => api.post('/mesas/unir/', data, auth());
+export const desunirMesa       = (id)   => api.post(`/mesas/${id}/desunir/`, {}, auth());
+export const finalizarServicio = (id)   => api.post(`/mesas/${id}/finalizar/`, {}, auth());
 
 // Pedidos
-export const getPedidos       = ()         => api.get('/pedidos/', getAuthHeader());
-export const crearPedido      = (data)     => api.post('/pedidos/', data, getAuthHeader());
-export const getPedido        = (id)       => api.get(`/pedidos/${id}/`, getAuthHeader());
-export const editarPedido     = (id, data) => api.put(`/pedidos/${id}/`, data, getAuthHeader());
-export const confirmarPedido  = (id)       => api.patch(`/pedidos/${id}/`, { accion: 'confirmar' }, getAuthHeader());
-export const despacharPedido  = (id)       => api.patch(`/pedidos/${id}/`, { accion: 'despachar' }, getAuthHeader());
-export const cancelarPedido   = (id, motivo) => api.delete(`/pedidos/${id}/`, { ...getAuthHeader(), data: { motivo } });
+export const getPedidos        = ()     => api.get('/pedidos/', auth());
+export const crearPedido       = (data) => api.post('/pedidos/', data, auth());
+export const getPedido         = (id)   => api.get(`/pedidos/${id}/`, auth());
+export const cambiarEstado     = (id, accion) =>
+  api.patch(`/pedidos/${id}/estado/`, { accion }, auth());
+export const cancelarPedido    = (id)   =>
+  api.patch(`/pedidos/${id}/estado/`, { accion: 'cancelar' }, auth());
 
-// Reclamos e historial
-export const crearReclamo     = (data)     => api.post('/reclamos/', data, getAuthHeader());
-export const getHistorial     = ()         => api.get('/historial-pedidos/', getAuthHeader());
-export const getPlatosDisponibles = () =>
-  api.get('/platos/', { ...getAuthHeader(), params: { disponible: 'true' } });
+// Productos disponibles
+export const getProductosDisponibles = () =>
+  api.get('/productos/', {
+    ...auth(),
+    params: { disponible: 'true' }
+  });
+
+// Reclamos
+export const getReclamos  = ()     => api.get('/reclamos/', auth());
+export const crearReclamo = (data) => api.post('/reclamos/', data, auth());
+
+// Historial
+export const getHistorial = () => api.get('/historial-pedidos/', auth());
