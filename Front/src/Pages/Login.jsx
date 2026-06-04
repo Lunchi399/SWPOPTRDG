@@ -9,26 +9,34 @@ export default function Login() {
   const navigate = useNavigate();
 
   const RUTAS_POR_ROL = {
-    administrador: '/admin/dashboard',
-    mesero:        '/mesero/mesas',
-    cocinero:      '/cocina/pedidos',
-    cajero:        '/caja/cobros',
-  };
+  administrador: '/admin/dashboard',
+  mesero:        '/mesero/mesas',
+  cocinero:      '/cocina/pedidos',
+  cajero:        '/caja/cobros',
+};
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    try {
-      const data = await loginService(form.username, form.password);
-      // redirige según el rol
-      navigate(RUTAS_POR_ROL[data.usuario.rol] || '/');
-    } catch (err) {
-      setError(err.response?.data?.error || 'Error al iniciar sesión');
-    } finally {
-      setLoading(false);
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setLoading(true);
+  setError('');
+  try {
+    const data = await loginService(form.username, form.password);
+
+    // Rol puede venir como 'Rol' o 'rol' según el serializer
+    const rol = data.usuario.Rol || data.usuario.rol;
+    const ruta = RUTAS_POR_ROL[rol];
+
+    if (ruta) {
+      navigate(ruta);
+    } else {
+      setError(`Rol no reconocido: ${rol}`);
     }
-  };
+  } catch (err) {
+    setError(err.response?.data?.error || 'Error al iniciar sesión');
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div style={styles.container}>
