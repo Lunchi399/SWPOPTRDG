@@ -31,26 +31,18 @@ export default function TabPedidos({ mesaInicial }) {
     setTimeout(() => { setMensaje(''); setError(''); }, 3000);
   };
 
-  const handleDespachar = async (pedido) => {
-    try {
-      await cambiarEstado(pedido.id_pedido, 'despachar');
-      mostrar(`Pedido #${pedido.id_pedido} marcado como despachado`);
-      cargar();
-    } catch (e) {
-      mostrar(e.response?.data?.error || 'Error', true);
-    }
-  };
 
-  const handleCancelar = async (pedido) => {
-    if (!window.confirm('¿Cancelar este pedido?')) return;
-    try {
-      await cancelarPedido(pedido.id_pedido);
-      mostrar(`Pedido #${pedido.id_pedido} cancelado`);
-      cargar();
-    } catch (e) {
-      mostrar(e.response?.data?.error || 'Error al cancelar', true);
-    }
-  };
+
+const handleCancelar = async (pedido) => {
+  if (!window.confirm('¿Cancelar este pedido?')) return;
+  try {
+    await cancelarPedido(pedido.id_pedidos); // ← con s
+    mostrar(`Pedido #${pedido.id_pedidos} cancelado`);
+    cargar();
+  } catch (e) {
+    mostrar(e.response?.data?.error || 'Error al cancelar', true);
+  }
+};
 
   const FILTROS = {
     activos:   ['confirmado', 'en_cocina', 'listo', 'despachado'],

@@ -150,35 +150,39 @@ class Mesas(models.Model):
 
 class Pedido(models.Model):
     ESTADO_CHOICES = [
-        ('confirmar', 'Confirmar'),
+        ('confirmado', 'Confirmado'),   # ← estados reales, no acciones
         ('en_cocina',  'En cocina'),
         ('listo',      'Listo'),
-        ('despachar', 'Despachado'),
-        ('completar',     'Pagado'),
-        ('cancelar',  'Cancelado'),
-        
+        ('despachado', 'Despachado'),
+        ('pagado',     'Pagado'),
+        ('cancelado',  'Cancelado'),
+        ('anulado',    'Anulado'),
     ]
-    # Campos exactos del diagrama
+
     id_pedidos          = models.AutoField(primary_key=True)
     estado              = models.CharField(max_length=20,
-                                          choices=ESTADO_CHOICES,
-                                          default='borrador')
+                                           choices=ESTADO_CHOICES,
+                                           default='confirmado')
     tiempo_creacion     = models.DateTimeField(auto_now_add=True)
     tiempo_modificacion = models.DateTimeField(auto_now=True)
     observaciones       = models.CharField(max_length=255,
-                                          blank=True, null=True)
-    id_mesa    = models.ForeignKey(Mesas, on_delete=models.SET_NULL,
+                                           blank=True, null=True)
+    id_mesa    = models.ForeignKey('mesas', on_delete=models.SET_NULL,
                                    null=True, blank=True,
                                    db_column='id_mesa',
                                    related_name='pedidos')
-    id_usuario = models.ForeignKey(Usuario, on_delete=models.SET_NULL,
+    id_usuario = models.ForeignKey('Usuario', on_delete=models.SET_NULL,
                                    null=True,
                                    db_column='id',
                                    related_name='pedidos')
+
     class Meta:
         db_table = 'pedido'
         managed  = False
         ordering = ['-tiempo_creacion']
+
+    def __str__(self):
+        return f"Pedido #{self.id_pedidos} — {self.estado}"
 
     @property
     def total(self):
@@ -190,16 +194,17 @@ class Pedido(models.Model):
 
 
 class DetallePedido(models.Model):
-    # Campos exactos del diagrama
-    id_detalle  = models.AutoField(primary_key=True)
-    cantidad    = models.IntegerField(default=1)
-    id_pedido   = models.ForeignKey(Pedido, on_delete=models.CASCADE,
-                                    db_column='id_pedidos',
-                                    related_name='detalles')
-    id_producto = models.ForeignKey(Producto, on_delete=models.SET_NULL,
-                                    null=True,
-                                    db_column='id_producto',
-                                    related_name='detalles')
+    id_detalle      = models.AutoField(primary_key=True)
+    cantidad        = models.IntegerField(default=1)
+    precio_unitario = models.DecimalField(max_digits=10, decimal_places=2,
+                                          null=True, blank=True)
+    id_pedido       = models.ForeignKey(Pedido, on_delete=models.CASCADE,
+                                        db_column='id_pedido',
+                                        related_name='detalles')
+    id_producto     = models.ForeignKey(Producto, on_delete=models.SET_NULL,
+                                        null=True,
+                                        db_column='id_producto',
+                                        related_name='detalles')
 
     class Meta:
         db_table = 'detalle_pedido'
@@ -244,7 +249,7 @@ class DetalleBoleta(models.Model):
     producto          = models.CharField(max_length=150)  # nombre del producto
     cantidad_producto = models.IntegerField()
     id_boleta         = models.ForeignKey(Boleta, on_delete=models.CASCADE,
-                                          db_column='id_boleta',
+                                          db_column='id_pago',
                                           related_name='detalles_boleta')
 
     class Meta:

@@ -369,10 +369,10 @@ def pedidos(request):
         if rol == 'mesero':
             qs = Pedido.objects.filter(
                 id_usuario=request.user
-            ).exclude(estado='pagado')
+            ).exclude(estado__in=['pagado', 'cancelado'])
         elif rol in ('cocinero', 'administrador'):
             qs = Pedido.objects.exclude(
-                estado__in=['borrador', 'pagado', 'cancelado']
+                estado__in=['pagado', 'cancelado']
             )
         elif rol == 'cajero':
             qs = Pedido.objects.filter(
@@ -394,15 +394,14 @@ def pedidos(request):
             return Response({'error': 'La mesa ya tiene un pedido activo'},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        # Crear pedido
+        # Crear pedido directamente en confirmado
         pedido = Pedido.objects.create(
-            estado        = 'borrador',
+            estado        = 'confirmado',   # ← sin borrador
             observaciones = request.data.get('observaciones', ''),
             id_mesa       = mesa,
             id_usuario    = request.user,
         )
 
-        # Crear detalles
         for d in request.data.get('detalles', []):
             try:
                 producto = Producto.objects.get(pk=d['id_producto'])
@@ -415,13 +414,13 @@ def pedidos(request):
             except Producto.DoesNotExist:
                 pass
 
-        # Marcar mesa como ocupada
         mesa.estado = 'ocupada'
         mesa.save()
 
-        return Response(PedidoSerializer(pedido).data,
-                        status=status.HTTP_201_CREATED)
-
+        return Response(
+            PedidoSerializer(pedido).data,
+            status=status.HTTP_201_CREATED
+        )
 
 # CU08/CU09/CU10 — Ver, editar, confirmar, despachar y cancelar pedido
 # Vista para que el cocinero cambie estados
@@ -437,33 +436,36 @@ def cambiar_estado_pedido(request, pk):
     accion = request.data.get('accion')
     rol    = request.user.Rol
 
+    # Estados reales en la BD → no acciones
     TRANSICIONES = {
-        'confirmar':  ('borrador',    'confirmado', ['mesero', 'administrador']),
         'en_cocina':  ('confirmado',  'en_cocina',  ['cocinero', 'administrador']),
         'listo':      ('en_cocina',   'listo',      ['cocinero', 'administrador']),
-        'despachar':  ('listo',       'despachado', ['mesero', 'administrador']),
-        'completar':  ('despachado',  'pagado',     ['cajero', 'administrador']),
-        'cancelar':   (None,          'cancelado',  ['mesero', 'administrador']),
+        'despachar':  ('listo',       'despachado', ['mesero',   'administrador']),
+        'cancelar':   (None,          'cancelado',  ['mesero',   'administrador']),
     }
 
     if accion not in TRANSICIONES:
-        return Response({'error': 'Acción no válida'},
+        return Response({'error': f'Acción no válida: {accion}'},
                         status=status.HTTP_400_BAD_REQUEST)
 
     estado_requerido, estado_nuevo, roles_permitidos = TRANSICIONES[accion]
 
     if rol not in roles_permitidos:
-        return Response({'error': f'Tu rol no puede ejecutar esta acción'},
-                        status=status.HTTP_403_FORBIDDEN)
+        return Response(
+            {'error': 'Tu rol no puede ejecutar esta acción'},
+            status=status.HTTP_403_FORBIDDEN
+        )
 
     if estado_requerido and pedido.estado != estado_requerido:
         return Response(
-            {'error': f'El pedido debe estar en estado "{estado_requerido}"'},
+            {'error': f'El pedido debe estar en "{estado_requerido}" '
+                      f'pero está en "{pedido.estado}"'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # No cancelar si ya está en cocina
-    if accion == 'cancelar' and pedido.estado in ('en_cocina', 'listo', 'despachado', 'pagado'):
+    if accion == 'cancelar' and pedido.estado in (
+        'en_cocina', 'listo', 'despachado', 'pagado'
+    ):
         return Response(
             {'error': 'No se puede cancelar: solicita anulación al administrador'},
             status=status.HTTP_400_BAD_REQUEST
@@ -472,13 +474,12 @@ def cambiar_estado_pedido(request, pk):
     pedido.estado = estado_nuevo
     pedido.save()
 
-    # Liberar mesa si se cancela
     if accion == 'cancelar' and pedido.id_mesa:
         pedido.id_mesa.estado = 'libre'
         pedido.id_mesa.save()
 
     return Response({
-        'mensaje': f'Pedido actualizado a: {estado_nuevo}',
+        'mensaje': f'Estado actualizado a: {estado_nuevo}',
         'pedido':  PedidoSerializer(pedido).data
     })
 
@@ -689,7 +690,7 @@ def registrar_boleta(request):
         return Response({'error': 'Sin permisos'},
                         status=status.HTTP_403_FORBIDDEN)
 
-    pedido_id = request.data.get('id_pedido')
+    pedido_id = request.data.get('id_pedidos')
     try:
         pedido = Pedido.objects.get(pk=pedido_id)
     except Pedido.DoesNotExist:

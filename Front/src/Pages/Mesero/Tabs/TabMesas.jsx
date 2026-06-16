@@ -86,25 +86,28 @@ export default function TabMesas({ onVerPedido }) {
   const total = () =>
     pedido.detalles.reduce((s, d) => s + d.precio * d.cantidad, 0).toFixed(2);
 
-  const handleCrearPedido = async () => {
-    if (pedido.detalles.length === 0) {
-      mostrar('Agrega al menos un plato', true); return;
-    }
-    try {
-      const nuevo = await crearPedido({
-        id_mesa:       mesaSel.id_mesa,
-        observaciones: pedido.observaciones,
-        detalles:      pedido.detalles,
-      });
-      // Confirmar automáticamente y enviar a cocina
-      await cambiarEstado(nuevo.data.id_pedido, 'confirmar');
-      mostrar(`Pedido enviado a cocina — Mesa ${mesaSel.identificador_mesa}`);
-      setModal(null);
-      cargar();
-    } catch (e) {
-      mostrar(e.response?.data?.error || 'Error al crear pedido', true);
-    }
-  };
+const handleCrearPedido = async () => {
+  if (pedido.detalles.length === 0) {
+    mostrar('Agrega al menos un plato', true); return;
+  }
+  try {
+    // Crear pedido directamente en confirmado
+    const nuevo = await crearPedido({
+      id_mesa:       mesaSel.id_mesa,
+      observaciones: pedido.observaciones,
+      detalles:      pedido.detalles,
+    });
+
+    console.log('Respuesta del backend:', nuevo.data);
+
+    mostrar(`Pedido enviado a cocina — Mesa ${mesaSel.identificador_mesa}`);
+    setModal(null);
+    cargar();
+  } catch (e) {
+    console.error('Error:', e.response?.data);
+    mostrar(e.response?.data?.error || 'Error al crear pedido', true);
+  }
+};
 
   const handleUnir = async () => {
     if (!unirSel) { mostrar('Selecciona la mesa a unir', true); return; }

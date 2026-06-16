@@ -6,7 +6,7 @@ export default function TabReclamos() {
   const [mesas,     setMesas]    = useState([]);
   const [reclamos,  setReclamos] = useState([]);
   const [form,      setForm]     = useState({
-    tipo:'reclamo', descripcion:'', id_pedido: ''
+    tipo:'reclamo', descripcion:'', id_pedidos: ''
   });
   const [mesaSel,  setMesaSel]  = useState('');
   const [mensaje,  setMensaje]  = useState('');
@@ -33,10 +33,10 @@ export default function TabReclamos() {
       await crearReclamo({
         tipo:        form.tipo,
         descripcion: form.descripcion,
-        id_pedido:   form.id_pedido || null,
+        id_pedidos:   form.id_pedidos || null,
       });
       mostrar('Reclamo registrado correctamente');
-      setForm({ tipo:'reclamo', descripcion:'', id_pedido:'' });
+      setForm({ tipo:'reclamo', descripcion:'', id_pedidos:'' });
       setMesaSel('');
       cargarReclamos();
     } catch (e) {

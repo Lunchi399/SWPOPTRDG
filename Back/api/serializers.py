@@ -89,33 +89,53 @@ class DetallePedidoSerializer(serializers.ModelSerializer):
 class PedidoSerializer(serializers.ModelSerializer):
     detalles           = DetallePedidoSerializer(many=True, read_only=True)
     total              = serializers.SerializerMethodField()
-    mesa_identificador = serializers.CharField(
-        source='id_mesa.identificador_mesa', read_only=True
-    )
-    mesero_nombre = serializers.SerializerMethodField()
+    mesa_identificador = serializers.SerializerMethodField()
+    mesero_nombre      = serializers.SerializerMethodField()
 
     class Meta:
         model  = Pedido
-        fields = ['id_pedidos',       
-                  'estado', 'observaciones',
-                  'tiempo_creacion', 'tiempo_modificacion',
-                  'id_mesa', 'mesa_identificador',
-                  'id', 'mesero_nombre',
-                  'detalles', 'total']
-        read_only_fields = ['id_pedidos',
-                            'tiempo_creacion', 'tiempo_modificacion']
+        fields = [
+            'id_pedidos',         
+            'estado',
+            'observaciones',
+            'tiempo_creacion',
+            'tiempo_modificacion',
+            'id_mesa',
+            'mesa_identificador',
+            'id_usuario',
+            'mesero_nombre',
+            'detalles',
+            'total',
+        ]
+        read_only_fields = [
+            'id_pedidos',
+            'tiempo_creacion',
+            'tiempo_modificacion',
+        ]
 
     def get_total(self, obj):
-        return sum(
-            d.cantidad * d.id_producto.precio
-            for d in obj.detalles.all()
-            if d.id_producto
-        )
+        try:
+            return sum(
+                d.cantidad * d.id_producto.precio
+                for d in obj.detalles.all()
+                if d.id_producto
+            )
+        except Exception:
+            return 0
+
+    def get_mesa_identificador(self, obj):
+        try:
+            return obj.id_mesa.identificador_mesa if obj.id_mesa else '—'
+        except Exception:
+            return '—'
 
     def get_mesero_nombre(self, obj):
-        if obj.id_usuario:
-            return f"{obj.id_usuario.Nombre} {obj.id_usuario.Apellido}"
-        return '—'
+        try:
+            if obj.id_usuario:
+                return f"{obj.id_usuario.Nombre} {obj.id_usuario.Apellido}"
+            return '—'
+        except Exception:
+            return '—'
 
 
 class DetalleboletaSerializer(serializers.ModelSerializer):
@@ -134,11 +154,11 @@ class BoletaSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = Boleta
-        fields = ['id_boleta', 'vuelto', 'fecha_cobro',
+        fields = ['id_pago', 'vuelto', 'fecha_cobro',
                   'id', 'cajero_nombre',
                   'id_pedidos', 'pedido_mesa',
                   'detalles_boleta']
-        read_only_fields = ['id_boleta', 'fecha_cobro']
+        read_only_fields = ['id_pago', 'fecha_cobro']
 
     def get_cajero_nombre(self, obj):
         if obj.id_usuario:

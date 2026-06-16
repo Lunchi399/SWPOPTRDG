@@ -16,7 +16,11 @@ export const crearPedido       = (data) => api.post('/pedidos/', data, auth());
 export const getPedido         = (id)   => api.get(`/pedidos/${id}/`, auth());
 export const cambiarEstado     = (id, accion) =>
   api.patch(`/pedidos/${id}/estado/`, { accion }, auth());
-export const cancelarPedido    = (id)   =>
+
+export const despacharPedido = (id) =>
+  api.patch(`/pedidos/${id}/estado/`, { accion: 'despachar' }, auth());
+
+export const cancelarPedido = (id) =>
   api.patch(`/pedidos/${id}/estado/`, { accion: 'cancelar' }, auth());
 
 // Productos disponibles
