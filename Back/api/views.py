@@ -8,12 +8,12 @@ from django.utils import timezone
 from api.backends import UsuarioBackend
 
 from .models import (Usuario, Producto, Mesas, Pedido,
-                     DetallePedido, Boleta, DetalleBoleta, Reclamo)
-
+                     DetallePedido, Pago, DetallePago,
+                     DatosFactura, Reclamo)
 from .serializers import (UsuarioSerializer, CrearUsuarioSerializer,
                            EditarUsuarioSerializer, ProductoSerializer,
                            MesaSerializer, PedidoSerializer,
-                           BoletaSerializer, ReclamoSerializer)
+                           PagoSerializer, ReclamoSerializer)
 from .permissions import EsAdministrador, EsMesero, EsCocinero, EsCajero
 
 
@@ -231,8 +231,8 @@ def mesas(request):
 @permission_classes([IsAuthenticated])
 def mesa_detalle(request, pk):
     try:
-        mesa = Boleta.objects.get(pk=pk)
-    except Boleta.DoesNotExist:
+        mesa = Pago.objects.get(pk=pk)
+    except Pago.DoesNotExist:
         return Response({'error': 'Mesa no encontrada'},
                         status=status.HTTP_404_NOT_FOUND)
 
@@ -294,7 +294,7 @@ def dashboard(request):
             'despachados': Pedido.objects.filter(estado='despachado').count(),
         },
         'pagos': {
-            'total_hoy': Boleta.objects.filter(
+            'total_hoy': Pago.objects.filter(
                 fecha_cobro__date=timezone.now().date()
             ).count(),
         },
@@ -434,14 +434,19 @@ def cambiar_estado_pedido(request, pk):
                         status=status.HTTP_404_NOT_FOUND)
 
     accion = request.data.get('accion')
-    rol    = request.user.Rol
 
-    # Estados reales en la BD → no acciones
+    # Obtener rol de forma segura
+    try:
+        rol = request.user.Rol
+    except Exception:
+        return Response({'error': 'No se pudo identificar el rol del usuario'},
+                        status=status.HTTP_403_FORBIDDEN)
+
     TRANSICIONES = {
-        'en_cocina':  ('confirmado',  'en_cocina',  ['cocinero', 'administrador']),
-        'listo':      ('en_cocina',   'listo',      ['cocinero', 'administrador']),
-        'despachar':  ('listo',       'despachado', ['mesero',   'administrador']),
-        'cancelar':   (None,          'cancelado',  ['mesero',   'administrador']),
+        'en_cocina': ('confirmado',  'en_cocina',  ['cocinero', 'administrador']),
+        'listo':     ('en_cocina',   'listo',      ['cocinero', 'administrador']),
+        'despachar': ('listo',       'despachado', ['mesero',   'administrador']),
+        'cancelar':  (None,          'cancelado',  ['mesero',   'administrador']),
     }
 
     if accion not in TRANSICIONES:
@@ -452,14 +457,14 @@ def cambiar_estado_pedido(request, pk):
 
     if rol not in roles_permitidos:
         return Response(
-            {'error': 'Tu rol no puede ejecutar esta acción'},
+            {'error': f'Tu rol "{rol}" no puede ejecutar la acción "{accion}"'},
             status=status.HTTP_403_FORBIDDEN
         )
 
     if estado_requerido and pedido.estado != estado_requerido:
         return Response(
-            {'error': f'El pedido debe estar en "{estado_requerido}" '
-                      f'pero está en "{pedido.estado}"'},
+            {'error': f'El pedido está en "{pedido.estado}" '
+                      f'pero debe estar en "{estado_requerido}"'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -655,7 +660,85 @@ def historial_pedidos(request):
     else:
         qs = Pedido.objects.all()
     return Response(PedidoSerializer(qs, many=True).data)
+# ══════════════════════════════════════════════════════════════
+# PAQUETE 4 — Cocina KDS
+# ══════════════════════════════════════════════════════════════
 
+# CU12 — Cola de pedidos para cocina
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def cola_cocina(request):
+    if request.user.Rol not in ('cocinero', 'administrador'):
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    # Solo pedidos activos ordenados por tiempo de creación
+    qs = Pedido.objects.filter(
+        estado__in=['confirmado', 'en_cocina', 'listo']
+    ).order_by('tiempo_creacion')
+
+    return Response(PedidoSerializer(qs, many=True).data)
+
+
+# CU13 — Historial de cocina del turno
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def historial_cocina(request):
+    if request.user.Rol not in ('cocinero', 'administrador'):
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    hoy = timezone.now().date()
+    qs  = Pedido.objects.filter(
+        tiempo_creacion__date=hoy,
+        estado__in=['listo', 'despachado', 'pagado', 'cancelado']
+    ).order_by('-tiempo_creacion')
+
+    return Response(PedidoSerializer(qs, many=True).data)
+
+
+# CU13 — Enviar alerta desde cocina
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def alerta_cocina(request):
+    if request.user.Rol not in ('cocinero', 'administrador'):
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    TIPO_ALERTA = {
+        'demora':     'Demora en preparación',
+        'insumos':    'Insumos insuficientes',
+        'escasez':    'Escasez del plato',
+        'otro':       'Otro',
+    }
+
+    tipo_alerta  = request.data.get('tipo_alerta', 'otro')
+    id_pedido    = request.data.get('id_pedido')
+    descripcion  = request.data.get('descripcion', '')
+
+    if not descripcion:
+        descripcion = TIPO_ALERTA.get(tipo_alerta, 'Alerta de cocina')
+
+    try:
+        pedido = Pedido.objects.get(pk=id_pedido)
+    except Pedido.DoesNotExist:
+        return Response({'error': 'Pedido no encontrado'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    # Registrar como reclamo interno de cocina
+    alerta = Reclamo.objects.create(
+        tipo        = 'reclamo',
+        descripcion = f'[COCINA - {TIPO_ALERTA.get(tipo_alerta, tipo_alerta)}] '
+                      f'{descripcion}',
+        estado      = 'pendiente',
+        id_pedido   = pedido,
+        id_usuario  = request.user,
+    )
+
+    return Response({
+        'mensaje': 'Alerta enviada al administrador',
+        'alerta':  ReclamoSerializer(alerta).data,
+    }, status=status.HTTP_201_CREATED)
 
 # ══════════════════════════════════════════════════════════════
 # PAQUETE 5 — Caja
@@ -675,24 +758,73 @@ def pedidos_por_mesa(request):
 # CU15 — Ver pedidos despachados listos para cobrar
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-def pedidos_por_mesa(request):
-    qs = Pedido.objects.filter(
-        estado='despachado'
-    ).select_related('id_mesa', 'id')
-    return Response(PedidoSerializer(qs, many=True).data)
-
-
-# CU15/CU16 — Registrar boleta (antes registrar_pago)
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def registrar_boleta(request):
+def pedidos_por_cobrar(request):
     if request.user.Rol not in ('cajero', 'administrador'):
         return Response({'error': 'Sin permisos'},
                         status=status.HTTP_403_FORBIDDEN)
 
-    pedido_id = request.data.get('id_pedidos')
+    qs = Pedido.objects.filter(
+        estado='despachado'
+    ).select_related('id_mesa', 'id_usuario')
+
+    return Response(PedidoSerializer(qs, many=True).data)
+
+# CU15 — Calcular total del pedido
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def calcular_total(request, pk):
+    if request.user.Rol not in ('cajero', 'administrador'):
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+
     try:
-        pedido = Pedido.objects.get(pk=pedido_id)
+        pedido = Pedido.objects.get(pk=pk)
+    except Pedido.DoesNotExist:
+        return Response({'error': 'Pedido no encontrado'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    detalles = pedido.detalles.all()
+    subtotal  = sum(
+        d.cantidad * d.id_producto.precio
+        for d in detalles if d.id_producto
+    )
+    igv       = round(float(subtotal * (18/100)), 2)
+    total     = round(subtotal + igv, 2)
+
+    return Response({
+        'id_pedidos':       pedido.id_pedidos,
+        'mesa':             pedido.id_mesa.identificador_mesa
+                            if pedido.id_mesa else '—',
+        'subtotal':         subtotal,
+        'igv':              igv,
+        'total':            total,
+        'detalles': [
+            {
+                'nombre':   d.id_producto.nombre,
+                'cantidad': d.cantidad,
+                'precio':   str(d.id_producto.precio),
+                'subtotal': str(d.cantidad * d.id_producto.precio),
+            }
+            for d in detalles if d.id_producto
+        ]
+    })
+
+# CU15/CU16 — Registrar Pago
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def registrar_pago(request):
+    if request.user.Rol not in ('cajero', 'administrador'):
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    id_pedidos       = request.data.get('id_pedidos')
+    metodo_pago      = request.data.get('metodo_pago', 'efectivo')
+    monto_recibido   = request.data.get('monto_recibido')
+    tipo_comprobante = request.data.get('tipo_comprobante', 'boleta')
+    datos_factura    = request.data.get('datos_factura', None)
+
+    try:
+        pedido = Pedido.objects.get(pk=id_pedidos)
     except Pedido.DoesNotExist:
         return Response({'error': 'Pedido no encontrado'},
                         status=status.HTTP_404_NOT_FOUND)
@@ -703,38 +835,61 @@ def registrar_boleta(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Calcular total desde los detalles del pedido
-    detalles  = pedido.detalles.all()
-    total     = sum(d.cantidad * d.id_producto.precio
-                    for d in detalles if d.id_producto)
-
-    monto_recibido = float(request.data.get('monto_recibido', total))
-    vuelto         = round(monto_recibido - float(total), 2)
+    # Calcular montos
+    detalles      = pedido.detalles.all()
+    subtotal      = sum(
+        d.cantidad * d.id_producto.precio
+        for d in detalles if d.id_producto
+    )
+    igv           = round(float(subtotal) * 0.18, 2)
+    monto_total   = round(float(subtotal) + igv, 2)
+    monto_recibido = float(monto_recibido or monto_total)
+    vuelto        = round(monto_recibido - monto_total, 2)
 
     if vuelto < 0:
         return Response(
-            {'error': f'Monto insuficiente. Total a pagar: S/. {total}'},
+            {'error': f'Monto insuficiente. Total: S/. {monto_total}'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Crear boleta
-    boleta = Boleta.objects.create(
-        vuelto     = vuelto,
-        id_usuario = request.user,
-        id_pedido  = pedido,
+    # Validar datos de factura si el comprobante es factura
+    if tipo_comprobante == 'factura' and not datos_factura:
+        return Response(
+            {'error': 'Se requieren datos de factura (RUC y razón social)'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Crear pago
+    pago = Pago.objects.create(
+        monto_total      = monto_total,
+        monto_recibido   = monto_recibido,
+        vuelto           = vuelto,
+        metodo_pago      = metodo_pago,
+        estado           = 'completado',
+        tipo_comprobante = tipo_comprobante,
+        id               = request.user,
+        id_pedidos       = pedido,
     )
 
-    # Crear detalle de boleta por cada ítem del pedido
+    # Crear detalle del pago
     for d in detalles:
         if d.id_producto:
-            subtotal = d.cantidad * d.id_producto.precio
-            DetalleBoleta.objects.create(
-                id_boleta        = boleta,
-                producto         = d.id_producto.nombre,
-                cantidad_producto= d.cantidad,
-                subtotal         = subtotal,
-                total            = total,
+            DetallePago.objects.create(
+                id_pago         = pago,
+                nombre_producto = d.id_producto.nombre,
+                cantidad        = d.cantidad,
+                precio_unitario = d.id_producto.precio,
+                subtotal        = d.cantidad * d.id_producto.precio,
             )
+
+    # Crear datos de factura si corresponde
+    if tipo_comprobante == 'factura' and datos_factura:
+        DatosFactura.objects.create(
+            id_pago          = pago,
+            ruc              = datos_factura.get('ruc', ''),
+            razon_social     = datos_factura.get('razon_social', ''),
+            direccion_fiscal = datos_factura.get('direccion_fiscal', ''),
+        )
 
     # Actualizar estado del pedido a pagado
     pedido.estado = 'pagado'
@@ -746,10 +901,11 @@ def registrar_boleta(request):
         pedido.id_mesa.save()
 
     return Response({
-        'mensaje': 'Boleta registrada correctamente',
-        'boleta':  BoletaSerializer(boleta).data,
-        'vuelto':  vuelto,
-        'total':   str(total),
+        'mensaje':       'Pago registrado correctamente',
+        'pago':          PagoSerializer(pago).data,
+        'vuelto':        vuelto,
+        'monto_total':   monto_total,
+        'tipo_comprobante': tipo_comprobante,
     }, status=status.HTTP_201_CREATED)
 
 
@@ -761,24 +917,46 @@ def cuadre_caja(request):
         return Response({'error': 'Sin permisos'},
                         status=status.HTTP_403_FORBIDDEN)
 
-    hoy     = timezone.now().date()
-    boletas = Boleta.objects.filter(fecha_cobro__date=hoy)
+    hoy   = timezone.now().date()
+    pagos = Pago.objects.filter(
+        fecha_cobro__date=hoy,
+        estado='completado'
+    )
 
-    # Calcular total vendido sumando los totales de cada detalle
-    total_ventas = 0
-    for b in boletas:
-        primer_detalle = b.detalles_boleta.first()
-        if primer_detalle:
-            total_ventas += primer_detalle.total
+    # Totales por método de pago
+    por_metodo = {}
+    for metodo in ['efectivo', 'yape', 'plin', 'tarjeta']:
+        total_metodo = sum(
+            float(p.monto_total)
+            for p in pagos
+            if p.metodo_pago == metodo
+        )
+        por_metodo[metodo] = total_metodo
+
+    # Totales por comprobante
+    por_comprobante = {}
+    for comp in ['boleta', 'factura', 'ninguno']:
+        total_comp = sum(
+            float(p.monto_total)
+            for p in pagos
+            if p.tipo_comprobante == comp
+        )
+        por_comprobante[comp] = total_comp
 
     resumen = {
         'fecha':               str(hoy),
-        'total_ventas':        total_ventas,
-        'total_transacciones': boletas.count(),
-        'total_vuelto':        sum(b.vuelto for b in boletas if b.vuelto),
-        'boletas':             BoletaSerializer(boletas, many=True).data,
+        'total_ventas':        sum(float(p.monto_total) for p in pagos),
+        'total_transacciones': pagos.count(),
+        'total_vuelto':        sum(
+                                 float(p.vuelto) for p in pagos
+                                 if p.vuelto
+                               ),
+        'por_metodo':          por_metodo,
+        'por_comprobante':     por_comprobante,
+        'pagos':               PagoSerializer(pagos, many=True).data,
     }
     return Response(resumen)
+
 @api_view(['PATCH'])
 @permission_classes([EsAdministrador])
 def reclamo_detalle(request, pk):
@@ -796,3 +974,14 @@ def reclamo_detalle(request, pk):
     reclamo.estado = nuevo_estado
     reclamo.save()
     return Response(ReclamoSerializer(reclamo).data)
+# CU28 — Historial de pagos del cajero
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def historial_pagos(request):
+    if request.user.Rol not in ('cajero', 'administrador'):
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    hoy   = timezone.now().date()
+    pagos = Pago.objects.filter(fecha_cobro__date=hoy)
+    return Response(PagoSerializer(pagos, many=True).data)

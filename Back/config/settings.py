@@ -21,7 +21,9 @@ SECRET_KEY = 'django-insecure-b#lih**1n2qmr3adjc!zi@1!+-7@a=uw-e^fp5x#7)sd5rw)$%
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []#recordar dejar vacio el arreglo
+ALLOWED_HOSTS = ['*']#recordar dejar vacio el arreglo
+
+
 
 
 # Application definition
@@ -41,13 +43,13 @@ INSTALLED_APPS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        # Reemplaza el JWTAuthentication por el personalizado
+        'api.authentication.UsuarioJWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
 }
-
 from datetime import timedelta
 
 SIMPLE_JWT = {

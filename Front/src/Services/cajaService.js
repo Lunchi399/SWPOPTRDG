@@ -1,15 +1,29 @@
 import api from './api';
 
-const getAuthHeader = () => ({
+const auth = () => ({
   headers: { Authorization: `Bearer ${localStorage.getItem('access')}` }
 });
 
-export const getPedidosPorMesa = () =>
-  api.get('/pedidos-por-mesa/', getAuthHeader());
+// CU15 — Pedidos listos para cobrar
+export const getPedidosPorCobrar = () =>
+  api.get('/caja/pedidos/', auth());
 
-// Antes era registrarPago, ahora es registrarBoleta
-export const registrarBoleta = (data) =>
-  api.post('/boletas/', data, getAuthHeader());
+// CU15 — Calcular total con IGV
+export const calcularTotal = (idPedido) =>
+  api.get(`/caja/calcular/${idPedido}/`, auth());
 
+// CU16 — Registrar pago
+export const registrarPago = (data) =>
+  api.post('/caja/pago/', data, auth());
+
+// CU17 — Reclamo desde caja
+export const crearReclamoCaja = (data) =>
+  api.post('/caja/reclamo/', data, auth());
+
+// CU16 — Cuadre de caja
 export const getCuadreCaja = () =>
-  api.get('/cuadre-caja/', getAuthHeader());
+  api.get('/caja/cuadre/', auth());
+
+// CU28 — Historial de pagos
+export const getHistorialPagos = () =>
+  api.get('/caja/historial/', auth());

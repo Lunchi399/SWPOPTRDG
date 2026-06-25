@@ -11,7 +11,15 @@ const ESTADO_INFO = {
   pagado:     { color:'#085041', bg:'#E1F5EE', label:'Pagado',      siguiente: null },
   cancelado:  { color:'#993C1D', bg:'#FAECE7', label:'Cancelado',   siguiente: null },
 };
-
+const handleDespachar = async (pedido) => {
+  try {
+    await cambiarEstado(pedido.id_pedidos, 'despachar');
+    mostrar(`Pedido #${pedido.id_pedidos} entregado al cliente`);
+    cargar();
+  } catch (e) {
+    mostrar(e.response?.data?.error || 'Error al despachar', true);
+  }
+};
 export default function TabPedidos({ mesaInicial }) {
   const [pedidos,  setPedidos]  = useState([]);
   const [filtro,   setFiltro]   = useState('activos');
@@ -53,6 +61,7 @@ const handleCancelar = async (pedido) => {
   const pedidosFiltrados = pedidos.filter(p =>
     FILTROS[filtro]?.includes(p.estado)
   );
+  
 
   // Contar pedidos listos para badge
   const cantListos = pedidos.filter(p => p.estado === 'listo').length;

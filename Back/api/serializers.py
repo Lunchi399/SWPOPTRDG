@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import (Usuario, Producto, Mesas, Pedido,
-                     DetallePedido, Boleta, DetalleBoleta, Reclamo)
+                     DetallePedido, Pago, DetallePago,
+                     DatosFactura, Reclamo)
 
 
 class UsuarioSerializer(serializers.ModelSerializer):
@@ -13,33 +14,34 @@ class UsuarioSerializer(serializers.ModelSerializer):
 
 class CrearUsuarioSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=6)
+    Nombre   = serializers.CharField(required=False, default='')
+    Apellido = serializers.CharField(required=False, default='')
+    email    = serializers.EmailField(required=False, default='')
+    Rol      = serializers.CharField(required=True)  
 
     class Meta:
         model  = Usuario
         fields = ['username', 'Nombre', 'Apellido',
                   'email', 'Rol', 'password']
-        extra_kwargs = {
-            'Nombre':   {'required': False},
-            'Apellido': {'required': False},
-            'email':    {'required': False},
-        }
 
-    def validate_username(self, value):
-        if Usuario.objects.filter(username=value).exists():
+    def validate_Rol(self, value):
+        roles_validos = ['administrador', 'mesero', 'cocinero', 'cajero']
+        if value.lower() not in roles_validos:
             raise serializers.ValidationError(
-                'Ya existe un usuario con ese nombre de usuario.'
+                f'Rol inválido. Opciones: {roles_validos}'
             )
-        return value
+        return value.lower()  # ← normaliza a minúscula
 
     def create(self, validated_data):
         from django.contrib.auth.hashers import make_password
         password = validated_data.pop('password')
-        usuario  = Usuario(
+
+        usuario = Usuario(
             username = validated_data.get('username'),
             Nombre   = validated_data.get('Nombre', ''),
             Apellido = validated_data.get('Apellido', ''),
             email    = validated_data.get('email', ''),
-            Rol      = validated_data.get('Rol', 'mesero'),
+            Rol      = validated_data.get('Rol', 'mesero'),  # ← usa el Rol enviado
             Activo   = True,
             Password = make_password(password),
         )
@@ -138,33 +140,46 @@ class PedidoSerializer(serializers.ModelSerializer):
             return '—'
 
 
-class DetalleboletaSerializer(serializers.ModelSerializer):
+class DetallePagoSerializer(serializers.ModelSerializer):
     class Meta:
-        model  = DetalleBoleta
-        fields = ['id_detalle_boleta', 'producto', 'cantidad_producto',
-                  'subtotal', 'total']
+        model  = DetallePago
+        fields = ['id_detalle_pago', 'nombre_producto',
+                  'cantidad', 'precio_unitario', 'subtotal']
 
 
-class BoletaSerializer(serializers.ModelSerializer):
-    detalles_boleta = DetalleboletaSerializer(many=True, read_only=True)
-    cajero_nombre   = serializers.SerializerMethodField()
-    pedido_mesa     = serializers.CharField(
-        source='id_pedidos.id_mesa.identificador_mesa', read_only=True
-    )
+class DatosFacturaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = DatosFactura
+        fields = ['id_factura', 'ruc', 'razon_social', 'direccion_fiscal']
+
+
+class PagoSerializer(serializers.ModelSerializer):
+    detalles_pago  = DetallePagoSerializer(many=True, read_only=True)
+    datos_factura  = DatosFacturaSerializer(many=True, read_only=True)
+    cajero_nombre  = serializers.SerializerMethodField()
+    pedido_mesa    = serializers.SerializerMethodField()
 
     class Meta:
-        model  = Boleta
-        fields = ['id_pago', 'vuelto', 'fecha_cobro',
+        model  = Pago
+        fields = ['id_pago', 'monto_total', 'monto_recibido',
+                  'vuelto', 'metodo_pago', 'estado',
+                  'fecha_cobro', 'tipo_comprobante',
                   'id', 'cajero_nombre',
                   'id_pedidos', 'pedido_mesa',
-                  'detalles_boleta']
-        read_only_fields = ['id_pago', 'fecha_cobro']
+                  'detalles_pago', 'datos_factura']
+        read_only_fields = ['id_pago', 'fecha_cobro', 'vuelto']
 
     def get_cajero_nombre(self, obj):
-        if obj.id_usuario:
-            return f"{obj.id_usuario.first_name} {obj.id_usuario.last_name}"
-        return '—'
+        try:
+            return f"{obj.id.Nombre} {obj.id.Apellido}"
+        except Exception:
+            return '—'
 
+    def get_pedido_mesa(self, obj):
+        try:
+            return obj.id_pedidos.id_mesa.identificador_mesa
+        except Exception:
+            return '—'
 
 class ReclamoSerializer(serializers.ModelSerializer):
     registrado_por = serializers.SerializerMethodField()

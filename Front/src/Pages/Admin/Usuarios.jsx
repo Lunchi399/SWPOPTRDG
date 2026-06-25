@@ -12,8 +12,13 @@ const ROL_COLOR = {
 };
 
 const FORM_VACIO = {
-  username:'', first_name:'', last_name:'',
-  email:'', rol:'mesero', password:'', activo: true
+  username:  '',
+  Nombre:    '',
+  Apellido:  '',
+  email:     '',
+  Rol:       'mesero',    // ← mayúscula
+  password:  '',
+  Activo:    true
 };
 
 export default function Usuarios() {
@@ -52,16 +57,20 @@ export default function Usuarios() {
     setModal('eliminar');
   };
 
-  const handleCrear = async () => {
-    try {
-      await crearUsuario(form);
-      mostrar('Usuario creado correctamente');
-      setModal(null);
-      cargar();
-    } catch (e) {
-      mostrar(JSON.stringify(e.response?.data), true);
-    }
-  };
+ const handleCrear = async () => {
+  try {
+    // Agrega este log para ver qué se está enviando
+    console.log('Datos a enviar:', form);
+
+    await crearUsuario(form);
+    mostrar('Usuario creado correctamente');
+    setModal(null);
+    cargar();
+  } catch (e) {
+    console.error('Error:', e.response?.data);
+    mostrar(JSON.stringify(e.response?.data), true);
+  }
+};
 
   const handleEditar = async () => {
     try {
@@ -188,35 +197,38 @@ function FormUsuario({ form, setForm, esEditar }) {
     <div style={{ marginBottom:12 }}>
       <label style={fs.label}>{label}</label>
       {opciones ? (
-        <select style={fs.input} value={form[key]}
+        <select style={fs.input}
+          value={form[key]}
           onChange={e => setForm({ ...form, [key]: e.target.value })}>
           {opciones.map(o =>
             <option key={o.v} value={o.v}>{o.l}</option>
           )}
         </select>
       ) : (
-        <input style={fs.input} type={type} value={form[key]}
+        <input style={fs.input} type={type}
+          value={form[key] || ''}
           placeholder={esEditar && key === 'password'
             ? 'Dejar vacío para no cambiar' : ''}
-          onChange={e => setForm({ ...form, [key]: e.target.value })} />
+          onChange={e => setForm({ ...form, [key]: e.target.value })}
+        />
       )}
     </div>
   );
 
   return (
     <>
-      {campo('Usuario *', 'username')}
-      {campo('Nombre',    'first_name')}
-      {campo('Apellido',  'last_name')}
-      {campo('Email',     'email', 'email')}
-      {campo('Rol *', 'rol', 'text', [
+      {campo('Usuario *',    'username')}
+      {campo('Nombre',       'Nombre')}
+      {campo('Apellido',     'Apellido')}
+      {campo('Email',        'email', 'email')}
+      {campo('Rol *', 'Rol', 'text', [     // ← 'Rol' con mayúscula
         { v:'administrador', l:'Administrador' },
         { v:'mesero',        l:'Mesero/a'      },
         { v:'cocinero',      l:'Cocinero/a'    },
         { v:'cajero',        l:'Cajero/a'      },
       ])}
       {campo('Contraseña *', 'password', 'password')}
-      {esEditar && campo('Estado', 'activo', 'text', [
+      {esEditar && campo('Estado', 'Activo', 'text', [
         { v: true,  l: 'Activo'   },
         { v: false, l: 'Inactivo' },
       ])}
