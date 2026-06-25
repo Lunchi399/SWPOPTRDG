@@ -25,12 +25,17 @@ urlpatterns = [
     path('pedidos/<int:pk>/',          views.pedido_detalle,     name='pedido-detalle'),
     path('reclamos/',                  views.reclamos,           name='reclamos'),
     path('historial-pedidos/',         views.historial_pedidos,  name='historial-pedidos'),
-
     path('pedidos/<int:pk>/estado/', views.cambiar_estado_pedido, name='cambiar-estado'),
-
-    #── Paquete 5: Caja───────────────────────────────────────
-    path('pedidos-por-mesa/',  views.pedidos_por_mesa, name='pedidos-por-mesa'),
-    path('boletas/',      views.registrar_boleta, name='registrar-boleta'),
-    path('cuadre-caja/',       views.cuadre_caja,      name='cuadre-caja'),
+    #---- Paquete 4 — Cocina ------------------------------------
+    path('cocina/cola/',      views.cola_cocina,     name='cola-cocina'),
+    path('cocina/historial/', views.historial_cocina, name='historial-cocina'),
+    path('cocina/alerta/',    views.alerta_cocina,    name='alerta-cocina'),
+    # ── Paquete 5: Caja ───────────────────────────────────────────
+    path('caja/pedidos/',              views.pedidos_por_cobrar, name='pedidos-cobrar'),
+    path('caja/calcular/<int:pk>/',    views.calcular_total,     name='calcular-total'),
+    path('caja/pago/',                 views.registrar_pago,     name='registrar-pago'),
+   
+    path('caja/cuadre/',               views.cuadre_caja,        name='cuadre-caja'),
+    path('caja/historial/',            views.historial_pagos,    name='historial-pagos'),
 
 ]

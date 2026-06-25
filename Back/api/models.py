@@ -217,43 +217,87 @@ class DetallePedido(models.Model):
         return 0
 
 
-class Boleta(models.Model):
-    # Reemplaza a Pago — campos exactos del diagrama
-    id_boleta   = models.AutoField(primary_key=True)
-    vuelto      = models.DecimalField(max_digits=10, decimal_places=2,
-                                      null=True, blank=True)
-    fecha_cobro = models.DateTimeField(auto_now_add=True)
-    id_usuario  = models.ForeignKey(Usuario, on_delete=models.SET_NULL,
-                                    null=True,
-                                    db_column='id',
-                                    related_name='boletas')
-    id_pedido   = models.ForeignKey(Pedido, on_delete=models.SET_NULL,
-                                    null=True,
-                                    db_column='id_pedidos',
-                                    related_name='boletas')
+class Pago(models.Model):
+    METODO_CHOICES = [
+        ('efectivo', 'Efectivo'),
+        ('yape',     'Yape'),
+        ('plin',     'Plin'),
+        ('tarjeta',  'Tarjeta'),
+    ]
+    ESTADO_CHOICES = [
+        ('pendiente',  'Pendiente'),
+        ('completado', 'Completado'),
+        ('anulado',    'Anulado'),
+    ]
+    COMPROBANTE_CHOICES = [
+        ('boleta',   'Boleta'),
+        ('factura',  'Factura'),
+        ('ninguno',  'Ninguno'),
+    ]
+
+    id_pago          = models.AutoField(primary_key=True)
+    monto_total      = models.DecimalField(max_digits=10, decimal_places=2)
+    monto_recibido   = models.DecimalField(max_digits=10, decimal_places=2,
+                                           null=True, blank=True)
+    vuelto           = models.DecimalField(max_digits=10, decimal_places=2,
+                                           null=True, blank=True)
+    metodo_pago      = models.CharField(max_length=20,
+                                        choices=METODO_CHOICES,
+                                        default='efectivo')
+    estado           = models.CharField(max_length=20,
+                                        choices=ESTADO_CHOICES,
+                                        default='pendiente')
+    fecha_cobro      = models.DateTimeField(auto_now_add=True)
+    tipo_comprobante = models.CharField(max_length=20,
+                                        choices=COMPROBANTE_CHOICES,
+                                        default='boleta')
+    # FK a Usuario — columna 'id' en la tabla
+    id               = models.ForeignKey('Usuario',
+                                          on_delete=models.SET_NULL,
+                                          null=True,
+                                          db_column='id',
+                                          related_name='pagos')
+    id_pedidos       = models.ForeignKey('Pedido',
+                                          on_delete=models.SET_NULL,
+                                          null=True,
+                                          db_column='id_pedidos',
+                                          related_name='pagos')
 
     class Meta:
-        db_table = 'Boleta'
+        db_table = 'pago'
         managed  = False
         ordering = ['-fecha_cobro']
 
     def __str__(self):
-        return f"Boleta #{self.id_boleta} — {self.fecha_cobro}"
+        return f"Pago #{self.id_pago} — S/. {self.monto_total}"
 
 
-class DetalleBoleta(models.Model):
-    # Reemplaza a DetallePago — campos exactos del diagrama
-    id_detalle_boleta = models.AutoField(primary_key=True)
-    subtotal          = models.DecimalField(max_digits=10, decimal_places=2)
-    total             = models.DecimalField(max_digits=10, decimal_places=2)
-    producto          = models.CharField(max_length=150)  # nombre del producto
-    cantidad_producto = models.IntegerField()
-    id_boleta         = models.ForeignKey(Boleta, on_delete=models.CASCADE,
-                                          db_column='id_pago',
-                                          related_name='detalles_boleta')
+class DetallePago(models.Model):
+    id_detalle_pago = models.AutoField(primary_key=True)
+    nombre_producto = models.CharField(max_length=150)
+    cantidad        = models.IntegerField()
+    precio_unitario = models.DecimalField(max_digits=10, decimal_places=2)
+    subtotal        = models.DecimalField(max_digits=10, decimal_places=2)
+    id_pago         = models.ForeignKey(Pago, on_delete=models.CASCADE,
+                                        db_column='id_pago',
+                                        related_name='detalles_pago')
 
     class Meta:
-        db_table = 'detalle_boleta'
+        db_table = 'detalle_pago'
+        managed  = False
+
+
+class DatosFactura(models.Model):
+    id_factura     = models.AutoField(primary_key=True)
+    ruc            = models.CharField(max_length=11)
+    razon_social   = models.CharField(max_length=200)
+    direccion_fiscal = models.CharField(max_length=255, blank=True, null=True)
+    id_pago        = models.ForeignKey(Pago, on_delete=models.CASCADE,
+                                       db_column='id_pago',
+                                       related_name='datos_factura')
+
+    class Meta:
+        db_table = 'datos_factura'
         managed  = False
 
 

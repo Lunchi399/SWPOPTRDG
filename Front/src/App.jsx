@@ -5,8 +5,9 @@ import Usuarios   from './pages/admin/Usuarios';
 import Productos  from './pages/admin/Productos';
 import Mesas      from './pages/admin/Mesas';
 import Reclamos   from './pages/admin/Reclamos';
-//import Pedidos from './pages/Admin/Pedidos';
+import CocinaIndex from './pages/cocina/Index';
 import MeseroIndex from './pages/mesero/Index';
+import CajaIndex from './pages/caja/Index';
 import { isAuthenticated } from './Services/authService';
 import { getRol } from './Services/authService';
 
@@ -63,7 +64,6 @@ function App() {
             </RutaPrivada>
           }
         />
-        
 
         {/* Mesero */}
         <Route path="/mesero/mesas"
@@ -73,7 +73,20 @@ function App() {
             </RutaPrivada>
           }
         />
-        
+        <Route path="/cocina/pedidos"
+          element={
+            <RutaPrivada rolRequerido="cocinero">
+              <CocinaIndex />
+            </RutaPrivada>
+          }
+        />
+        <Route path="/caja/cobros"
+          element={
+            <RutaPrivada rolRequerido="cajero">
+              <CajaIndex />
+            </RutaPrivada>
+          }
+        />
 
         <Route path="/" element={<Navigate to="/login" />} />
       </Routes>

@@ -14,7 +14,7 @@ export const finalizarServicio = (id)   => api.post(`/mesas/${id}/finalizar/`, {
 export const getPedidos        = ()     => api.get('/pedidos/', auth());
 export const crearPedido       = (data) => api.post('/pedidos/', data, auth());
 export const getPedido         = (id)   => api.get(`/pedidos/${id}/`, auth());
-export const cambiarEstado     = (id, accion) =>
+export const cambiarEstado = (id, accion) =>
   api.patch(`/pedidos/${id}/estado/`, { accion }, auth());
 
 export const despacharPedido = (id) =>

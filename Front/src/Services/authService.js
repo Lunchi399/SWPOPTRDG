@@ -42,5 +42,6 @@ export const isAuthenticated = () => {
 export const getRol = () => {
   const u = getUsuario();
   if (!u) return null;
-  return u.Rol || u.rol || null;
+  const rol = u.Rol || u.rol || '';
+  return rol.toLowerCase().trim();  // ← siempre en minúscula
 };
