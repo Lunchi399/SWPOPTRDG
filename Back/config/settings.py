@@ -21,7 +21,9 @@ SECRET_KEY = 'django-insecure-b#lih**1n2qmr3adjc!zi@1!+-7@a=uw-e^fp5x#7)sd5rw)$%
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']#recordar dejar vacio el arreglo
+
+
 
 
 # Application definition
@@ -41,13 +43,13 @@ INSTALLED_APPS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        # Reemplaza el JWTAuthentication por el personalizado
+        'api.authentication.UsuarioJWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
 }
-
 from datetime import timedelta
 
 SIMPLE_JWT = {
@@ -102,6 +104,8 @@ DATABASES = {
 }
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "https://7fw826d2-5173.brs.devtunnels.ms"
+   
 ]
 
 
@@ -142,3 +146,6 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 AUTH_USER_MODEL = 'api.Usuario'
+AUTHENTICATION_BACKENDS = [
+    'api.backends.UsuarioBackend',
+]
