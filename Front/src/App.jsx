@@ -5,7 +5,7 @@ import Usuarios   from './pages/admin/Usuarios';
 import Productos  from './pages/admin/Productos';
 import Mesas      from './pages/admin/Mesas';
 import Reclamos   from './pages/admin/Reclamos';
-
+//import Pedidos from './pages/Admin/Pedidos';
 import MeseroIndex from './pages/mesero/Index';
 import { isAuthenticated } from './Services/authService';
 import { getRol } from './Services/authService';
@@ -63,6 +63,7 @@ function App() {
             </RutaPrivada>
           }
         />
+        
 
         {/* Mesero */}
         <Route path="/mesero/mesas"
@@ -72,6 +73,7 @@ function App() {
             </RutaPrivada>
           }
         />
+        
 
         <Route path="/" element={<Navigate to="/login" />} />
       </Routes>

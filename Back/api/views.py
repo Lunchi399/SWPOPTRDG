@@ -231,8 +231,8 @@ def mesas(request):
 @permission_classes([IsAuthenticated])
 def mesa_detalle(request, pk):
     try:
-        mesa = Boleta.objects.get(pk=pk)
-    except Boleta.DoesNotExist:
+        mesa = Mesas.objects.get(pk=pk)
+    except Mesas.DoesNotExist:
         return Response({'error': 'Mesa no encontrada'},
                         status=status.HTTP_404_NOT_FOUND)
 
