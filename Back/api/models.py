@@ -199,7 +199,7 @@ class DetallePedido(models.Model):
     precio_unitario = models.DecimalField(max_digits=10, decimal_places=2,
                                           null=True, blank=True)
     id_pedido       = models.ForeignKey(Pedido, on_delete=models.CASCADE,
-                                        db_column='id_pedido',
+                                        db_column='id_pedidos',
                                         related_name='detalles')
     id_producto     = models.ForeignKey(Producto, on_delete=models.SET_NULL,
                                         null=True,

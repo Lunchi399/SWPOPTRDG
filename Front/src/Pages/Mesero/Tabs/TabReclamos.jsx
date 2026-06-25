@@ -1,24 +1,41 @@
 import { useEffect, useState } from 'react';
-import { getMesas, getReclamos,
-         crearReclamo } from '../../../services/meseroService';
+import { getMesas, getReclamos, crearReclamo } from '../../../services/meseroService';
 
+// ── TOAST (Mismo estilo premium de Pedidos) ────────────────────────
+function Toast({ mensaje, error }) {
+  if (!mensaje && !error) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: error ? '#FEF2F2' : '#F0FDF4', border: `1px solid ${error ? '#FECACA' : '#BBF7D0'}`, color: error ? '#991B1B' : '#065F46', borderRadius: 12, padding: '12px 18px', fontSize: 13, fontWeight: 600, marginBottom: 20, boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+      {error
+        ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      }
+      {mensaje || error}
+    </div>
+  );
+}
+
+// ── COMPONENTE PRINCIPAL ───────────────────────────────────────────
 export default function TabReclamos() {
-  const [mesas,     setMesas]    = useState([]);
-  const [reclamos,  setReclamos] = useState([]);
-  const [form,      setForm]     = useState({
-    tipo:'reclamo', descripcion:'', id_pedidos: ''
+  const [mesas, setMesas] = useState([]);
+  const [reclamos, setReclamos] = useState([]);
+  const [form, setForm] = useState({
+    tipo: 'reclamo', descripcion: '', id_pedidos: ''
   });
-  const [mesaSel,  setMesaSel]  = useState('');
-  const [mensaje,  setMensaje]  = useState('');
-  const [error,    setError]    = useState('');
+  const [mesaSel, setMesaSel] = useState('');
+  const [mensaje, setMensaje] = useState('');
+  const [error, setError] = useState('');
 
+  // 1. Declaramos la función primero
+  const cargarReclamos = () => {
+    getReclamos().then(r => setReclamos(r.data));
+  };
+
+  // 2. La llamamos en el useEffect
   useEffect(() => {
     getMesas().then(r => setMesas(r.data));
     cargarReclamos();
   }, []);
-
-  const cargarReclamos = () =>
-    getReclamos().then(r => setReclamos(r.data));
 
   const mostrar = (msg, err = false) => {
     err ? setError(msg) : setMensaje(msg);
@@ -31,12 +48,12 @@ export default function TabReclamos() {
     }
     try {
       await crearReclamo({
-        tipo:        form.tipo,
+        tipo: form.tipo,
         descripcion: form.descripcion,
-        id_pedidos:   form.id_pedidos || null,
+        id_pedidos: form.id_pedidos || null,
       });
       mostrar('Reclamo registrado correctamente');
-      setForm({ tipo:'reclamo', descripcion:'', id_pedidos:'' });
+      setForm({ tipo: 'reclamo', descripcion: '', id_pedidos: '' });
       setMesaSel('');
       cargarReclamos();
     } catch (e) {
@@ -44,27 +61,30 @@ export default function TabReclamos() {
     }
   };
 
+  // ── DICCIONARIOS DE DISEÑO ───────────────────────────────────────
   const TIPO_COLOR = {
-    reclamo:    { bg:'#FAECE7', color:'#712B13' },
-    sugerencia: { bg:'#E6F1FB', color:'#0C447C' },
+    reclamo:    { bg: '#FEF2F2', color: '#B91C1C', dot: '#EF4444' }, 
+    sugerencia: { bg: '#EFF6FF', color: '#1D4ED8', dot: '#3B82F6' }, 
   };
   const ESTADO_COLOR = {
-    pendiente: { bg:'#FAEEDA', color:'#633806' },
-    revisado:  { bg:'#E6F1FB', color:'#0C447C' },
-    resuelto:  { bg:'#E1F5EE', color:'#085041' },
+    pendiente:  { bg: '#FFFBEB', color: '#B45309', dot: '#F59E0B' }, 
+    revisado:   { bg: '#F5F3FF', color: '#6D28D9', dot: '#8B5CF6' }, 
+    resuelto:   { bg: '#ECFDF5', color: '#047857', dot: '#10B981' }, 
   };
 
   return (
-    <div style={{ maxWidth:700 }}>
-      {mensaje && <div style={s.toast}>{mensaje}</div>}
-      {error   && <div style={s.toastErr}>{error}</div>}
+    <div style={s.tabContent}>
+      <Toast mensaje={mensaje} error={error} />
 
-      {/* Formulario */}
+      {/* ── Formulario ── */}
       <div style={s.formCard}>
-        <h3 style={s.formTitulo}>Registrar reclamo o sugerencia</h3>
+        <div style={s.formHeader}>
+          <span style={s.formIcon}>📝</span>
+          <h3 style={s.formTitulo}>Registrar reclamo o sugerencia</h3>
+        </div>
 
         <div style={s.formRow}>
-          <div style={{ flex:1 }}>
+          <div style={s.inputGroup}>
             <label style={s.label}>Tipo</label>
             <select style={s.select} value={form.tipo}
               onChange={e => setForm({ ...form, tipo: e.target.value })}>
@@ -72,7 +92,7 @@ export default function TabReclamos() {
               <option value="sugerencia">Sugerencia</option>
             </select>
           </div>
-          <div style={{ flex:2 }}>
+          <div style={s.inputGroup}>
             <label style={s.label}>Mesa (opcional)</label>
             <select style={s.select} value={mesaSel}
               onChange={e => setMesaSel(e.target.value)}>
@@ -86,60 +106,76 @@ export default function TabReclamos() {
           </div>
         </div>
 
-        <label style={s.label}>Descripción *</label>
-        <textarea style={s.textarea}
-          placeholder="Describe el reclamo o sugerencia del cliente..."
-          value={form.descripcion}
-          onChange={e => setForm({ ...form, descripcion: e.target.value })}
-        />
+        <div style={s.inputGroup}>
+          <label style={s.label}>Descripción <span style={{color: '#EF4444'}}>*</span></label>
+          <textarea style={s.textarea}
+            placeholder="Describe el reclamo o sugerencia del cliente..."
+            value={form.descripcion}
+            onChange={e => setForm({ ...form, descripcion: e.target.value })}
+          />
+        </div>
 
-        <button style={s.btnEnviar} onClick={handleEnviar}>
-          Registrar
-        </button>
+        <div style={s.formFooter}>
+          <button style={s.btnEnviar} onClick={handleEnviar}>
+            Registrar reporte
+          </button>
+        </div>
       </div>
 
-      {/* Listado de reclamos del turno */}
-      <h3 style={{ fontSize:15, fontWeight:700, color:'#1E2D40',
-                   margin:'1.5rem 0 1rem' }}>
-        Reclamos registrados
-      </h3>
+      {/* ── Listado de reclamos del turno ── */}
+      <div style={s.listHeader}>
+        <h3 style={s.listTitulo}>Historial del turno</h3>
+        <span style={s.badgeCount}>{reclamos.length} registros</span>
+      </div>
 
       {reclamos.length === 0 ? (
-        <div style={s.empty}>No hay reclamos registrados aún.</div>
+        <div style={s.empty}>
+          <div style={s.emptyIcon}> inbox </div>
+          No hay reclamos ni sugerencias registrados aún.
+        </div>
       ) : (
-        <div style={s.lista}>
+        <div style={s.listaGrid}>
           {reclamos.map(r => {
-            const tc = TIPO_COLOR[r.tipo]    || TIPO_COLOR.reclamo;
+            const tc = TIPO_COLOR[r.tipo] || TIPO_COLOR.reclamo;
             const ec = ESTADO_COLOR[r.estado] || ESTADO_COLOR.pendiente;
+            
             return (
               <div key={r.id_reclamo} style={s.reclamoCard}>
+                
+                {/* Cabecera Tarjeta */}
                 <div style={s.reclamoHeader}>
-                  <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-                    <span style={{ ...s.pill,
-                                    background:tc.bg, color:tc.color }}>
-                      {r.tipo}
+                  <div style={s.reclamoIdGroup}>
+                    <span style={{ ...s.pill, background: tc.bg, color: tc.color }}>
+                      {r.tipo.charAt(0).toUpperCase() + r.tipo.slice(1)}
                     </span>
-                    <span style={{ fontSize:11, color:'#aaa' }}>
-                      #{r.id_reclamo}
-                    </span>
+                    <span style={s.reclamoIdText}>#{r.id_reclamo}</span>
                   </div>
-                  <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-                    <span style={{ ...s.pill,
-                                    background:ec.bg, color:ec.color }}>
-                      {r.estado}
-                    </span>
-                    <span style={{ fontSize:11, color:'#aaa' }}>
+                  <div style={s.reclamoEstadoGroup}>
+                    <span style={s.reclamoDateText}>
                       {new Date(r.tiempo_creacion).toLocaleString('es-PE', {
-                        day:'2-digit', month:'2-digit',
-                        hour:'2-digit', minute:'2-digit'
+                        day: '2-digit', month: '2-digit',
+                        hour: '2-digit', minute: '2-digit'
                       })}
                     </span>
                   </div>
                 </div>
-                <p style={{ fontSize:13, color:'#333',
-                             margin:'8px 0 0', lineHeight:1.5 }}>
-                  {r.descripcion}
-                </p>
+
+                {/* Contenido Tarjeta */}
+                <div style={s.reclamoDescGroup}>
+                  <p style={s.reclamoDescText}>"{r.descripcion}"</p>
+                </div>
+
+                {/* Footer Tarjeta */}
+                <div style={s.reclamoCardFooter}>
+                  <p style={s.reclamoMesaText}>
+                    📍 Mesa: {mesas.find(m => m.id_mesa === r.id_mesa)?.identificador_mesa || 'General'}
+                  </p>
+                  <span style={{ ...s.pill, background: ec.bg, color: ec.color }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: ec.dot, display: 'inline-block', marginRight: 5 }} />
+                    {r.estado.charAt(0).toUpperCase() + r.estado.slice(1)}
+                  </span>
+                </div>
+
               </div>
             );
           })}
@@ -149,32 +185,47 @@ export default function TabReclamos() {
   );
 }
 
+// ── ESTILOS ────────────────────────────────────────────────────────
 const s = {
-  toast:      { background:'#E1F5EE', color:'#085041', padding:'10px 14px',
-                borderRadius:8, marginBottom:12, fontSize:13 },
-  toastErr:   { background:'#FAECE7', color:'#993C1D', padding:'10px 14px',
-                borderRadius:8, marginBottom:12, fontSize:13 },
-  formCard:   { background:'#fff', borderRadius:10, padding:'1.25rem',
-                border:'1px solid #E8E6DF', marginBottom:'1.5rem' },
-  formTitulo: { fontSize:15, fontWeight:700, color:'#1E2D40', margin:'0 0 1rem' },
-  formRow:    { display:'flex', gap:10, marginBottom:10 },
-  label:      { fontSize:12, fontWeight:600, color:'#555',
-                display:'block', marginBottom:4 },
-  select:     { width:'100%', padding:'8px 12px', borderRadius:8,
-                border:'1px solid #ddd', fontSize:13 },
-  textarea:   { width:'100%', padding:'8px 12px', borderRadius:8,
-                border:'1px solid #ddd', fontSize:13, resize:'vertical',
-                minHeight:80, marginBottom:12, marginTop:4 },
-  btnEnviar:  { padding:'9px 20px', borderRadius:8, background:'#2E5F8A',
-                color:'#fff', border:'none', cursor:'pointer',
-                fontSize:13, fontWeight:600 },
-  empty:      { textAlign:'center', color:'#888', padding:'2rem',
-                background:'#fff', borderRadius:10, fontSize:14 },
-  lista:      { display:'flex', flexDirection:'column', gap:8 },
-  reclamoCard:{ background:'#fff', borderRadius:10, padding:'1rem 1.25rem',
-                border:'1px solid #E8E6DF' },
-  reclamoHeader:{ display:'flex', justifyContent:'space-between',
-                  alignItems:'center' },
-  pill:       { fontSize:11, fontWeight:500, padding:'3px 10px',
-                borderRadius:20 },
+  tabContent: { fontFamily: "'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif", padding: '0 0 24px 0' },
+  
+  // Formulario
+  formCard:   { background: '#fff', borderRadius: 16, padding: '24px', border: '1px solid #E2E8F0', marginBottom: '32px', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
+  formHeader: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: '20px' },
+  formIcon:   { fontSize: 20 },
+  formTitulo: { fontSize: 18, fontWeight: 800, color: '#0F172A', margin: 0 },
+  formRow:    { display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' },
+  inputGroup: { flex: 1, minWidth: '200px', display: 'flex', flexDirection: 'column', gap: 6 },
+  label:      { fontSize: 13, fontWeight: 700, color: '#475569', display: 'block' },
+  select:     { width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#F8FAFC', color: '#0F172A', outline: 'none', fontFamily: "inherit" },
+  textarea:   { width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#F8FAFC', color: '#0F172A', resize: 'vertical', minHeight: 100, marginBottom: 8, outline: 'none', fontFamily: "inherit", boxSizing: 'border-box' },
+  formFooter: { display: 'flex', justifyContent: 'flex-end', marginTop: 8 },
+  btnEnviar:  { padding: '10px 24px', borderRadius: 10, background: '#0F172A', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 700, fontFamily: "inherit", transition: 'background 0.2s' },
+  
+  // Encabezado de Lista
+  listHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: '16px' },
+  listTitulo: { fontSize: 18, fontWeight: 800, color: '#0F172A', margin: 0 },
+  badgeCount: { background: '#F1F5F9', color: '#475569', padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700 },
+  
+  // Estado Vacío (Empty State)
+  empty:      { textAlign: 'center', color: '#64748B', padding: '48px 20px', background: '#F8FAFC', borderRadius: 16, border: '1px dashed #CBD5E1', fontSize: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 },
+  emptyIcon:  { fontSize: 32, opacity: 0.8 },
+  
+  // Grid / Tarjetas
+  listaGrid:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 },
+  reclamoCard:{ background: '#fff', borderRadius: 16, padding: '20px', border: '1px solid #E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column' },
+  reclamoHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  reclamoIdGroup: { display: 'flex', gap: 8, alignItems: 'center' },
+  reclamoIdText: { fontSize: 12, color: '#94A3B8', fontWeight: 600 },
+  reclamoEstadoGroup: { display: 'flex', gap: 6, alignItems: 'center' },
+  reclamoDateText: { fontSize: 12, color: '#64748B', fontWeight: 500 },
+  pill:       { fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, display: 'inline-flex', alignItems: 'center' },
+  
+  // Contenido de la Tarjeta
+  reclamoDescGroup: { flex: 1, marginBottom: 16, background: '#F8FAFC', padding: '12px 14px', borderRadius: 10, border: '1px solid #F1F5F9' },
+  reclamoDescText: { fontSize: 14, color: '#334155', margin: 0, lineHeight: 1.6, fontStyle: 'italic' },
+  
+  // Footer de la Tarjeta
+  reclamoCardFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, borderTop: '1px solid #F1F5F9' },
+  reclamoMesaText: { fontSize: 13, color: '#0F172A', fontWeight: 700, margin: 0 },
 };
