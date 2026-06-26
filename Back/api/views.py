@@ -6,10 +6,12 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.utils import timezone
 from api.backends import UsuarioBackend
-
+from decimal import Decimal, ROUND_HALF_UP
 from .models import (Usuario, Producto, Mesas, Pedido,
                      DetallePedido, Pago, DetallePago,
                      DatosFactura, Reclamo)
+from django.db.models import Count, Sum
+from django.db.models.functions import TruncHour, TruncDate
 from .serializers import (UsuarioSerializer, CrearUsuarioSerializer,
                            EditarUsuarioSerializer, ProductoSerializer,
                            MesaSerializer, PedidoSerializer,
@@ -83,6 +85,89 @@ def logout(request):
 # ══════════════════════════════════════════════════════════════
 # PAQUETE 2 — Administración
 # ══════════════════════════════════════════════════════════════
+
+
+@api_view(['GET'])
+@permission_classes([EsAdministrador])
+def estadisticas(request):
+    from decimal import Decimal
+    hoy      = timezone.now().date()
+    hace7    = hoy - timezone.timedelta(days=6)
+
+    # Ventas por día últimos 7 días
+    ventas_7dias = []
+    for i in range(7):
+        dia   = hace7 + timezone.timedelta(days=i)
+        total = Pago.objects.filter(
+            fecha_cobro__date=dia,
+            estado='completado'
+        ).aggregate(total=Sum('monto_total'))['total'] or Decimal('0')
+        ventas_7dias.append({
+            'dia':   dia.strftime('%d/%m'),
+            'total': float(total),
+        })
+
+    # Pedidos por estado hoy
+    estados_pedidos = []
+    for estado in ['confirmado','en_cocina','listo','despachado','pagado','cancelado']:
+        cnt = Pedido.objects.filter(
+            tiempo_creacion__date=hoy,
+            estado=estado
+        ).count()
+        estados_pedidos.append({ 'estado': estado, 'cantidad': cnt })
+
+    # Ventas por método de pago hoy
+    pagos_hoy = Pago.objects.filter(
+        fecha_cobro__date=hoy, estado='completado'
+    )
+    metodos = []
+    for m in ['efectivo','yape','plin','tarjeta']:
+        total = sum(
+            float(p.monto_total) for p in pagos_hoy
+            if p.metodo_pago == m
+        )
+        if total > 0:
+            metodos.append({ 'metodo': m, 'total': total })
+
+    # Productos más vendidos hoy
+    from django.db.models import Sum as DSum
+    top_productos = DetallePedido.objects.filter(
+        id_pedido__tiempo_creacion__date=hoy
+    ).values(
+        'id_producto__nombre'
+    ).annotate(
+        total_vendido=DSum('cantidad')
+    ).order_by('-total_vendido')[:5]
+
+    top = [
+        {
+            'nombre':   p['id_producto__nombre'] or '—',
+            'cantidad': p['total_vendido'],
+        }
+        for p in top_productos
+    ]
+
+    # Métricas rápidas
+    total_hoy     = float(pagos_hoy.aggregate(
+                        t=Sum('monto_total'))['t'] or 0)
+    pedidos_hoy   = Pedido.objects.filter(
+                        tiempo_creacion__date=hoy).count()
+    mesas_ocupadas = Mesas.objects.filter(estado='ocupada').count()
+    reclamos_pend  = Reclamo.objects.filter(estado='pendiente').count()
+
+    return Response({
+        'metricas': {
+            'total_ventas_hoy':   total_hoy,
+            'pedidos_hoy':        pedidos_hoy,
+            'mesas_ocupadas':     mesas_ocupadas,
+            'reclamos_pendientes': reclamos_pend,
+            'transacciones_hoy':  pagos_hoy.count(),
+        },
+        'ventas_7dias':    ventas_7dias,
+        'estados_pedidos': estados_pedidos,
+        'ventas_metodo':   metodos,
+        'top_productos':   top,
+    })
 
 # CU03 — Listar y crear usuarios
 @api_view(['GET', 'POST'])
@@ -231,8 +316,8 @@ def mesas(request):
 @permission_classes([IsAuthenticated])
 def mesa_detalle(request, pk):
     try:
-        mesa = Pago.objects.get(pk=pk)
-    except Pago.DoesNotExist:
+        mesa = Mesas.objects.get(pk=pk)
+    except Mesas.DoesNotExist:
         return Response({'error': 'Mesa no encontrada'},
                         status=status.HTTP_404_NOT_FOUND)
 
@@ -248,7 +333,8 @@ def mesa_detalle(request, pk):
         if serializer.is_valid():
             serializer.save()
             return Response(MesaSerializer(mesa).data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors,
+                        status=status.HTTP_400_BAD_REQUEST)
 
     if request.method == 'DELETE':
         if mesa.estado == 'ocupada':
@@ -257,8 +343,8 @@ def mesa_detalle(request, pk):
                 status=status.HTTP_400_BAD_REQUEST
             )
         mesa.delete()
-        return Response({'mensaje': f'Mesa {mesa.identificador_mesa} eliminada'})
-
+        return Response({'mensaje': f'Mesa {mesa.identificador_mesa} eliminada'},
+                        status=status.HTTP_200_OK)
 
 # CU06 — Dashboard resumen del día
 @api_view(['GET'])
@@ -644,12 +730,25 @@ def reclamos(request):
         return Response(ReclamoSerializer(qs, many=True).data)
 
     if request.method == 'POST':
-        serializer = ReclamoSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save(id_usuario=request.user)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+        try:
+            reclamo = Reclamo.objects.create(
+                tipo        = request.data.get('tipo', 'reclamo'),
+                descripcion = request.data.get('descripcion', ''),
+                estado      = 'pendiente',
+                id_pedido   = Pedido.objects.get(
+                                pk=request.data.get('id_pedidos')
+                              ) if request.data.get('id_pedidos') else None,
+                id_usuario  = request.user,
+            )
+            return Response(
+                ReclamoSerializer(reclamo).data,
+                status=status.HTTP_201_CREATED
+            )
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 # CU11 — Historial de pedidos
 @api_view(['GET'])
@@ -713,7 +812,7 @@ def alerta_cocina(request):
     }
 
     tipo_alerta  = request.data.get('tipo_alerta', 'otro')
-    id_pedido    = request.data.get('id_pedido')
+    id_pedido    = request.data.get('id_pedidos')
     descripcion  = request.data.get('descripcion', '')
 
     if not descripcion:
@@ -784,26 +883,36 @@ def calcular_total(request, pk):
                         status=status.HTTP_404_NOT_FOUND)
 
     detalles = pedido.detalles.all()
-    subtotal  = sum(
-        d.cantidad * d.id_producto.precio
-        for d in detalles if d.id_producto
+
+    # Calcular subtotal usando solo Decimal
+    subtotal = sum(
+        Decimal(str(d.cantidad)) * d.id_producto.precio
+        for d in detalles
+        if d.id_producto
     )
-    igv       = round(float(subtotal * (18/100)), 2)
-    total     = round(subtotal + igv, 2)
+
+    igv   = (subtotal * Decimal('0.18')).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+    total = (subtotal + igv).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
 
     return Response({
-        'id_pedidos':       pedido.id_pedidos,
-        'mesa':             pedido.id_mesa.identificador_mesa
-                            if pedido.id_mesa else '—',
-        'subtotal':         subtotal,
-        'igv':              igv,
-        'total':            total,
+        'id_pedidos': pedido.id_pedidos,
+        'mesa':       pedido.id_mesa.identificador_mesa
+                      if pedido.id_mesa else '—',
+        'subtotal':   str(subtotal),
+        'igv':        str(igv),
+        'total':      str(total),
         'detalles': [
             {
                 'nombre':   d.id_producto.nombre,
                 'cantidad': d.cantidad,
                 'precio':   str(d.id_producto.precio),
-                'subtotal': str(d.cantidad * d.id_producto.precio),
+                'subtotal': str(
+                    Decimal(str(d.cantidad)) * d.id_producto.precio
+                ),
             }
             for d in detalles if d.id_producto
         ]
@@ -834,25 +943,33 @@ def registrar_pago(request):
             {'error': 'El pedido no está listo para cobrar'},
             status=status.HTTP_400_BAD_REQUEST
         )
+    
 
-    # Calcular montos
-    detalles      = pedido.detalles.all()
-    subtotal      = sum(
-        d.cantidad * d.id_producto.precio
+    detalles = pedido.detalles.all()
+
+    # Todo en Decimal
+    subtotal = sum(
+        Decimal(str(d.cantidad)) * d.id_producto.precio
         for d in detalles if d.id_producto
     )
-    igv           = round(float(subtotal) * 0.18, 2)
-    monto_total   = round(float(subtotal) + igv, 2)
-    monto_recibido = float(monto_recibido or monto_total)
-    vuelto        = round(monto_recibido - monto_total, 2)
+    igv         = (subtotal * Decimal('0.18')).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                  )
+    monto_total = (subtotal + igv).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                  )
 
-    if vuelto < 0:
+    monto_recibido = Decimal(str(monto_recibido or monto_total))
+    vuelto         = (monto_recibido - monto_total).quantize(
+                       Decimal('0.01'), rounding=ROUND_HALF_UP
+                     )
+
+    if vuelto < Decimal('0'):
         return Response(
             {'error': f'Monto insuficiente. Total: S/. {monto_total}'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Validar datos de factura si el comprobante es factura
     if tipo_comprobante == 'factura' and not datos_factura:
         return Response(
             {'error': 'Se requieren datos de factura (RUC y razón social)'},
@@ -874,12 +991,16 @@ def registrar_pago(request):
     # Crear detalle del pago
     for d in detalles:
         if d.id_producto:
+            subtotal_detalle = (
+                Decimal(str(d.cantidad)) * d.id_producto.precio
+            ).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
             DetallePago.objects.create(
                 id_pago         = pago,
                 nombre_producto = d.id_producto.nombre,
                 cantidad        = d.cantidad,
                 precio_unitario = d.id_producto.precio,
-                subtotal        = d.cantidad * d.id_producto.precio,
+                subtotal        = subtotal_detalle,
             )
 
     # Crear datos de factura si corresponde
@@ -891,7 +1012,7 @@ def registrar_pago(request):
             direccion_fiscal = datos_factura.get('direccion_fiscal', ''),
         )
 
-    # Actualizar estado del pedido a pagado
+    # Actualizar estado del pedido
     pedido.estado = 'pagado'
     pedido.save()
 
@@ -901,13 +1022,12 @@ def registrar_pago(request):
         pedido.id_mesa.save()
 
     return Response({
-        'mensaje':       'Pago registrado correctamente',
-        'pago':          PagoSerializer(pago).data,
-        'vuelto':        vuelto,
-        'monto_total':   monto_total,
+        'mensaje':        'Pago registrado correctamente',
+        'pago':           PagoSerializer(pago).data,
+        'vuelto':         str(vuelto),
+        'monto_total':    str(monto_total),
         'tipo_comprobante': tipo_comprobante,
     }, status=status.HTTP_201_CREATED)
-
 
 # CU16 — Cuadre de caja
 @api_view(['GET'])
@@ -985,3 +1105,26 @@ def historial_pagos(request):
     hoy   = timezone.now().date()
     pagos = Pago.objects.filter(fecha_cobro__date=hoy)
     return Response(PagoSerializer(pagos, many=True).data)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def reclamo_caja(request):
+    if request.user.Rol not in ('cajero', 'administrador'):
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+    try:
+        reclamo = Reclamo.objects.create(
+            tipo        = request.data.get('tipo', 'reclamo'),
+            descripcion = request.data.get('descripcion', ''),
+            estado      = 'pendiente',
+            id_usuario  = request.user,
+        )
+        return Response(
+            ReclamoSerializer(reclamo).data,
+            status=status.HTTP_201_CREATED
+        )
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )

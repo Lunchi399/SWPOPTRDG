@@ -187,9 +187,9 @@ class ReclamoSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Reclamo
         fields = ['id_reclamo', 'tipo', 'descripcion', 'estado',
-                  'tiempo_creacion', 'id_pedidos',
-                  'id', 'registrado_por']
-        read_only_fields = ['id_reclamo', 'tiempo_creacion', 'id']
+                  'tiempo_creacion', 'id_pedido',
+                  'id_usuario', 'registrado_por']
+        read_only_fields = ['id_reclamo', 'tiempo_creacion', 'id_usuario']
 
     def get_registrado_por(self, obj):
         if obj.id_usuario:

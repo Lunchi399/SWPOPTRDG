@@ -1,7 +1,7 @@
 import api from './api';
 
 const getAuthHeader = () => ({
-  headers: { Authorization: `Bearer ${localStorage.getItem('access')}` }
+  headers: { Authorization: `Bearer ${sessionStorage.getItem('access')}` }
 });
 
 // ── Usuarios ──────────────────────────────────────────────────
@@ -25,3 +25,5 @@ export const eliminarMesa  = (id)        => api.delete(`/mesas/${id}/`, getAuthH
 
 // ── Dashboard ─────────────────────────────────────────────────
 export const getDashboard  = ()          => api.get('/dashboard/', getAuthHeader());
+export const getEstadisticas = () =>
+  api.get('/estadisticas/', getAuthHeader());

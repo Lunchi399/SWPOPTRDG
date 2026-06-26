@@ -1,9 +1,8 @@
 import api from './api';
 
 const auth = () => ({
-  headers: { Authorization: `Bearer ${localStorage.getItem('access')}` }
+  headers: { Authorization: `Bearer ${sessionStorage.getItem('access')}` }
 });
-
 // Mesas
 export const getMesas          = ()     => api.get('/mesas/', auth());
 export const unirMesas         = (data) => api.post('/mesas/unir/', data, auth());
