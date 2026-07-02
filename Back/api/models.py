@@ -138,6 +138,11 @@ class Mesas(models.Model):
     estado             = models.CharField(max_length=20,
                                           choices=ESTADO_CHOICES,
                                           default='libre')
+    mesa_unida_a        = models.ForeignKey('self',
+                                            on_delete=models.SET_NULL,
+                                            null=True, blank=True,
+                                            db_column='mesa_unida_a',
+                                            related_name='mesas_unidas')
 
     class Meta:
         db_table = 'mesas'    # ← tu diagrama dice "Mesa" no "Mesas"

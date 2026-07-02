@@ -36,7 +36,7 @@ def login(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Usar nuestro backend personalizado
+   
     backend  = UsuarioBackend()
     usuario  = backend.authenticate(request, username=username,
                                     password=password)
@@ -94,7 +94,7 @@ def estadisticas(request):
     hoy      = timezone.now().date()
     hace7    = hoy - timezone.timedelta(days=6)
 
-    # Ventas por día últimos 7 días
+
     ventas_7dias = []
     for i in range(7):
         dia   = hace7 + timezone.timedelta(days=i)
@@ -107,7 +107,7 @@ def estadisticas(request):
             'total': float(total),
         })
 
-    # Pedidos por estado hoy
+  
     estados_pedidos = []
     for estado in ['confirmado','en_cocina','listo','despachado','pagado','cancelado']:
         cnt = Pedido.objects.filter(
@@ -116,7 +116,7 @@ def estadisticas(request):
         ).count()
         estados_pedidos.append({ 'estado': estado, 'cantidad': cnt })
 
-    # Ventas por método de pago hoy
+
     pagos_hoy = Pago.objects.filter(
         fecha_cobro__date=hoy, estado='completado'
     )
@@ -147,7 +147,7 @@ def estadisticas(request):
         for p in top_productos
     ]
 
-    # Métricas rápidas
+
     total_hoy     = float(pagos_hoy.aggregate(
                         t=Sum('monto_total'))['t'] or 0)
     pedidos_hoy   = Pedido.objects.filter(
@@ -185,7 +185,7 @@ def usuarios(request):
                 {'mensaje': 'Usuario creado correctamente'},
                 status=status.HTTP_201_CREATED
             )
-        # Muestra el error exacto
+     
         print('Errores:', serializer.errors)
         return Response(serializer.errors,
                         status=status.HTTP_400_BAD_REQUEST)
@@ -288,10 +288,22 @@ def producto_detalle(request, pk):
         })
 
     if request.method == 'DELETE':
+        
+        tiene_pedidos = DetallePedido.objects.filter(
+            id_producto=producto
+        ).exists()
+
+        if tiene_pedidos:
+            return Response(
+                {'error': 'No se puede eliminar: el producto tiene '
+                          'pedidos históricos asociados. '
+                          'Márcalo como no disponible en su lugar.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         producto.delete()
         return Response({'mensaje': 'Producto eliminado'})
-
-
+    
 # CU05 — Listar y crear mesas
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
@@ -342,9 +354,35 @@ def mesa_detalle(request, pk):
                 {'error': 'No se puede eliminar una mesa ocupada'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+   
+        pedidos_activos = Pedido.objects.filter(
+            id_mesa=mesa,
+            estado__in=['confirmado','en_cocina','listo','despachado']
+        ).exists()
+
+        if pedidos_activos:
+            return Response(
+                {'error': 'La mesa tiene pedidos activos. '
+                        'Finaliza los pedidos antes de eliminarla.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+   
+        try:
+            Pedido.objects.filter(id_mesa=mesa).update(id_mesa=None)
+        except Exception:
+            return Response(
+                {'error': 'No se puede desvincular los pedidos de esta mesa. '
+                        'Ejecuta: ALTER TABLE pedido ALTER COLUMN id_mesa DROP NOT NULL'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         mesa.delete()
-        return Response({'mensaje': f'Mesa {mesa.identificador_mesa} eliminada'},
-                        status=status.HTTP_200_OK)
+        return Response(
+            {'mensaje': f'Mesa {mesa.identificador_mesa} eliminada correctamente'},
+            status=status.HTTP_200_OK
+        )
 
 # CU06 — Dashboard resumen del día
 @api_view(['GET'])
@@ -402,32 +440,73 @@ def unir_mesas(request):
     mesa_unir_id = request.data.get('mesa_unir_id')
 
     try:
-        mesa1 = Mesas.objects.get(pk=mesa_id)
-        mesa2 = Mesas.objects.get(pk=mesa_unir_id)
+        mesa_principal  = Mesas.objects.get(pk=mesa_id)
+        mesa_secundaria = Mesas.objects.get(pk=mesa_unir_id)
     except Mesas.DoesNotExist:
         return Response({'error': 'Mesa no encontrada'},
                         status=status.HTTP_404_NOT_FOUND)
 
-    if mesa1.estado == 'ocupada' and mesa2.estado == 'ocupada':
+    if mesa_principal.estado != 'libre' or mesa_secundaria.estado != 'libre':
         return Response(
-            {'error': 'No se pueden unir dos mesas con pedidos activos distintos'},
+            {'error': 'Ambas mesas deben estar libres para unirse'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    mesa2.estado = 'unida'
-    mesa2.save()
-    mesa1.estado = 'ocupada'
-    mesa1.save()
+    mesa_secundaria.estado       = 'unida'
+    mesa_secundaria.mesa_unida_a = mesa_principal
+    mesa_secundaria.save()
+
+    mesa_principal.estado = 'libre'
+    mesa_principal.save()
 
     return Response({
-        'mensaje':       f'Mesa {mesa1.identificador_mesa} y '
-                         f'Mesa {mesa2.identificador_mesa} unidas',
-        'mesa_principal': MesaSerializer(mesa1).data,
-        'mesa_unida':     MesaSerializer(mesa2).data,
+        'mensaje': f'{mesa_principal.identificador_mesa} y '
+                   f'{mesa_secundaria.identificador_mesa} unidas',
+        'mesa_principal':  MesaSerializer(mesa_principal).data,
+        'mesa_secundaria': MesaSerializer(mesa_secundaria).data,
     })
 
 
-# CU07 — Desunir mesa
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def desunir_mesa(request, pk):
+    """pk puede ser la principal o la secundaria, soporta ambos casos."""
+    try:
+        mesa = Mesas.objects.get(pk=pk)
+    except Mesas.DoesNotExist:
+        return Response({'error': 'Mesa no encontrada'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    if mesa.estado == 'unida':
+        secundaria = mesa
+        principal  = mesa.mesa_unida_a
+ 
+    else:
+        secundaria = Mesas.objects.filter(mesa_unida_a=mesa).first()
+        principal  = mesa
+
+    if not secundaria or not principal:
+        return Response({'error': 'Esta mesa no tiene una unión activa'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    secundaria.estado       = 'libre'
+    secundaria.mesa_unida_a = None
+    secundaria.save()
+
+    tiene_pedido_activo = Pedido.objects.filter(
+        id_mesa=principal,
+        estado__in=['confirmado','en_cocina','listo','despachado']
+    ).exists()
+    principal.estado = 'ocupada' if tiene_pedido_activo else 'libre'
+    principal.save()
+
+    return Response({
+        'mensaje': f'{secundaria.identificador_mesa} y '
+                   f'{principal.identificador_mesa} separadas',
+        'mesa_principal':  MesaSerializer(principal).data,
+        'mesa_secundaria': MesaSerializer(secundaria).data,
+    })
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def desunir_mesa(request, pk):
@@ -438,13 +517,30 @@ def desunir_mesa(request, pk):
                         status=status.HTTP_404_NOT_FOUND)
 
     if mesa.estado != 'unida':
-        return Response({'error': 'Esta mesa no está unida'},
+        return Response({'error': 'Esta mesa no está unida a ninguna otra'},
                         status=status.HTTP_400_BAD_REQUEST)
 
-    mesa.estado = 'libre'
-    mesa.save()
-    return Response({'mensaje': f'Mesa {mesa.identificador_mesa} separada'})
+    mesa_principal = mesa.mesa_unida_a
 
+ 
+    mesa.estado = 'libre'
+    mesa.mesa_unida_a = None
+    mesa.save()
+
+    if mesa_principal:
+        tiene_pedido_activo = Pedido.objects.filter(
+            id_mesa=mesa_principal,
+            estado__in=['confirmado','en_cocina','listo','despachado']
+        ).exists()
+        mesa_principal.estado = 'ocupada' if tiene_pedido_activo else 'libre'
+        mesa_principal.save()
+
+    return Response({
+        'mensaje': f'Mesa {mesa.identificador_mesa} separada correctamente',
+        'mesa_separada':  MesaSerializer(mesa).data,
+        'mesa_principal': MesaSerializer(mesa_principal).data
+                          if mesa_principal else None,
+    })
 
 # CU08 — Listar y crear pedidos
 @api_view(['GET', 'POST'])
@@ -938,31 +1034,50 @@ def registrar_pago(request):
         return Response({'error': 'Pedido no encontrado'},
                         status=status.HTTP_404_NOT_FOUND)
 
-    if pedido.estado != 'despachado':
+    # ── Verificar que el pedido no fue pagado ya ──────────────
+    if pedido.estado == 'pagado':
         return Response(
-            {'error': 'El pedido no está listo para cobrar'},
+            {'error': 'Este pedido ya fue pagado anteriormente'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
 
-    detalles = pedido.detalles.all()
+    # ── Verificar que no existe ya un pago para este pedido ───
+    pago_existente = Pago.objects.filter(id_pedidos=pedido).first()
+    if pago_existente:
+        # Sincronizar el estado del pedido y liberar la mesa
+        pedido.estado = 'pagado'
+        pedido.save()
+        if pedido.id_mesa:
+            pedido.id_mesa.estado = 'libre'
+            pedido.id_mesa.save()
+        return Response(
+            {'error': 'Este pedido ya tiene un pago registrado. '
+                      'El estado del pedido ha sido sincronizado.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
-    # Todo en Decimal
-    subtotal = sum(
+    if pedido.estado != 'despachado':
+        return Response(
+            {'error': f'El pedido está en estado "{pedido.estado}". '
+                       'Solo se pueden cobrar pedidos despachados.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Calcular montos
+    from decimal import Decimal, ROUND_HALF_UP
+    detalles    = pedido.detalles.all()
+    subtotal    = sum(
         Decimal(str(d.cantidad)) * d.id_producto.precio
         for d in detalles if d.id_producto
     )
     igv         = (subtotal * Decimal('0.18')).quantize(
-                    Decimal('0.01'), rounding=ROUND_HALF_UP
-                  )
+                    Decimal('0.01'), rounding=ROUND_HALF_UP)
     monto_total = (subtotal + igv).quantize(
-                    Decimal('0.01'), rounding=ROUND_HALF_UP
-                  )
+                    Decimal('0.01'), rounding=ROUND_HALF_UP)
 
     monto_recibido = Decimal(str(monto_recibido or monto_total))
-    vuelto         = (monto_recibido - monto_total).quantize(
-                       Decimal('0.01'), rounding=ROUND_HALF_UP
-                     )
+    vuelto = (monto_recibido - monto_total).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP)
 
     if vuelto < Decimal('0'):
         return Response(
@@ -970,59 +1085,82 @@ def registrar_pago(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if tipo_comprobante == 'factura' and not datos_factura:
-        return Response(
-            {'error': 'Se requieren datos de factura (RUC y razón social)'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    if tipo_comprobante == 'factura':
+        if not datos_factura:
+            return Response(
+                {'error': 'Se requieren datos de factura'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        ruc = datos_factura.get('ruc', '').strip()
+        if not ruc.isdigit() or len(ruc) != 11:
+            return Response(
+                {'error': 'El RUC debe tener exactamente 11 dígitos'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    # Crear pago
-    pago = Pago.objects.create(
-        monto_total      = monto_total,
-        monto_recibido   = monto_recibido,
-        vuelto           = vuelto,
-        metodo_pago      = metodo_pago,
-        estado           = 'completado',
-        tipo_comprobante = tipo_comprobante,
-        id               = request.user,
-        id_pedidos       = pedido,
-    )
+    # Crear pago con manejo de error de duplicado
+    try:
+        pago = Pago.objects.create(
+            monto_total      = monto_total,
+            monto_recibido   = monto_recibido,
+            vuelto           = vuelto,
+            metodo_pago      = metodo_pago,
+            estado           = 'completado',
+            tipo_comprobante = tipo_comprobante,
+            id               = request.user,
+            id_pedidos       = pedido,
+        )
+    except Exception as e:
+        # Si hay duplicado por condición de carrera
+        if 'duplicate key' in str(e).lower():
+            pedido.estado = 'pagado'
+            pedido.save()
+            if pedido.id_mesa:
+                pedido.id_mesa.estado = 'libre'
+                pedido.id_mesa.save()
+            return Response(
+                {'error': 'El pago ya fue registrado. '
+                          'El pedido ha sido marcado como pagado.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return Response(
+            {'error': f'Error al registrar pago: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
     # Crear detalle del pago
     for d in detalles:
         if d.id_producto:
-            subtotal_detalle = (
+            subtotal_det = (
                 Decimal(str(d.cantidad)) * d.id_producto.precio
             ).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-
             DetallePago.objects.create(
                 id_pago         = pago,
                 nombre_producto = d.id_producto.nombre,
                 cantidad        = d.cantidad,
                 precio_unitario = d.id_producto.precio,
-                subtotal        = subtotal_detalle,
+                subtotal        = subtotal_det,
             )
 
-    # Crear datos de factura si corresponde
+    # Crear datos de factura
     if tipo_comprobante == 'factura' and datos_factura:
         DatosFactura.objects.create(
             id_pago          = pago,
-            ruc              = datos_factura.get('ruc', ''),
+            ruc              = datos_factura.get('ruc', '').strip(),
             razon_social     = datos_factura.get('razon_social', ''),
             direccion_fiscal = datos_factura.get('direccion_fiscal', ''),
         )
 
-    # Actualizar estado del pedido
+    # Actualizar pedido y mesa
     pedido.estado = 'pagado'
     pedido.save()
 
-    # Liberar la mesa
     if pedido.id_mesa:
         pedido.id_mesa.estado = 'libre'
         pedido.id_mesa.save()
 
     return Response({
-        'mensaje':        'Pago registrado correctamente',
+        'mensaje':        '✅ Pago registrado correctamente',
         'pago':           PagoSerializer(pago).data,
         'vuelto':         str(vuelto),
         'monto_total':    str(monto_total),

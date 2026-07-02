@@ -9,6 +9,12 @@ export const getUsuarios     = ()          => api.get('/usuarios/', getAuthHeade
 export const crearUsuario    = (data)      => api.post('/usuarios/', data, getAuthHeader());
 export const editarUsuario   = (id, data)  => api.put(`/usuarios/${id}/`, data, getAuthHeader());
 export const eliminarUsuario = (id)        => api.delete(`/usuarios/${id}/`, getAuthHeader());
+// Reclamos
+export const getReclamos = () =>
+  api.get('/reclamos/', getAuthHeader());
+
+export const cambiarEstadoReclamo = (id, estado) =>
+  api.patch(`/reclamos/${id}/`, { estado }, getAuthHeader());
 
 // ── Productos (antes Platos) ──────────────────────────────────
 export const getProductos     = (params)   => api.get('/productos/', { ...getAuthHeader(), params });
@@ -21,6 +27,7 @@ export const eliminarProducto = (id)       => api.delete(`/productos/${id}/`, ge
 export const getMesas      = ()          => api.get('/mesas/', getAuthHeader());
 export const crearMesa     = (data)      => api.post('/mesas/', data, getAuthHeader());
 export const editarMesa    = (id, data)  => api.put(`/mesas/${id}/`, data, getAuthHeader());
+export const desunirMesa   = (id)          => api.post(`/mesas/${id}/desunir/`, {}, getAuthHeader());
 export const eliminarMesa  = (id)        => api.delete(`/mesas/${id}/`, getAuthHeader());
 
 // ── Dashboard ─────────────────────────────────────────────────

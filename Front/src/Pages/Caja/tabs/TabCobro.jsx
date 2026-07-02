@@ -307,15 +307,24 @@ export default function TabCobro({ onContarPendientes }) {
               <div style={s.seccion}>
                 <div style={s.seccionLabel}>Datos de factura</div>
                 <input style={s.input}
-                  placeholder="RUC *" maxLength={11}
-                  value={pago.datos_factura.ruc}
-                  onChange={e => setPago({
-                    ...pago,
-                    datos_factura: {
-                      ...pago.datos_factura, ruc: e.target.value
-                    }
-                  })}
-                />
+                          placeholder="RUC * (11 dígitos)"
+                          maxLength={11}
+                          value={pago.datos_factura.ruc}
+                          onChange={e => {
+                            // Solo permitir números
+                            const val = e.target.value.replace(/\D/g, '');
+                            setPago({
+                              ...pago,
+                              datos_factura: { ...pago.datos_factura, ruc: val }
+                            });
+                          }}
+                        />
+                        {pago.datos_factura.ruc &&
+                        pago.datos_factura.ruc.length !== 11 && (
+                          <div style={{ fontSize:11, color:'#EF4444', marginTop:4 }}>
+                            El RUC debe tener 11 dígitos
+                          </div>
+                        )}
                 <input style={{ ...s.input, marginTop:8 }}
                   placeholder="Razón social *"
                   value={pago.datos_factura.razon_social}

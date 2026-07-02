@@ -30,7 +30,7 @@ class CrearUsuarioSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 f'Rol inválido. Opciones: {roles_validos}'
             )
-        return value.lower()  # ← normaliza a minúscula
+        return value.lower() 
 
     def create(self, validated_data):
         from django.contrib.auth.hashers import make_password
@@ -41,7 +41,7 @@ class CrearUsuarioSerializer(serializers.ModelSerializer):
             Nombre   = validated_data.get('Nombre', ''),
             Apellido = validated_data.get('Apellido', ''),
             email    = validated_data.get('email', ''),
-            Rol      = validated_data.get('Rol', 'mesero'),  # ← usa el Rol enviado
+            Rol      = validated_data.get('Rol', 'mesero'), 
             Activo   = True,
             Password = make_password(password),
         )
@@ -62,10 +62,17 @@ class ProductoSerializer(serializers.ModelSerializer):
 
 
 class MesaSerializer(serializers.ModelSerializer):
+    mesas_unidas_a_mi = serializers.SerializerMethodField()
+
     class Meta:
         model  = Mesas
-        fields = ['id_mesa', 'identificador_mesa', 'capacidad', 'estado']
+        fields = ['id_mesa', 'identificador_mesa', 'capacidad',
+                  'estado', 'mesa_unida_a', 'mesas_unidas_a_mi']
 
+    def get_mesas_unidas_a_mi(self, obj):
+        # Lista de identificadores de mesas que están unidas a esta
+        secundarias = Mesas.objects.filter(mesa_unida_a=obj)
+        return [m.identificador_mesa for m in secundarias]
 
 class DetallePedidoSerializer(serializers.ModelSerializer):
     producto_nombre = serializers.CharField(
