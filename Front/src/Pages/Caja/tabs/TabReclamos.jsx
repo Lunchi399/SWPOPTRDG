@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { crearReclamoCaja } from '../../../services/cajaService';
+import { crearReclamoCaja } from '../../../Services/cajaService';
 
 export default function TabReclamos() {
   const [form,    setForm]    = useState({

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getHistorialCocina } from '../../../services/cocinaService';
+import { getHistorialCocina } from '../../../Services/cocinaService';
 
 const ESTADO_INFO = {
   listo:      { bg:'#0D2A1E', color:'#9FE1CB' },

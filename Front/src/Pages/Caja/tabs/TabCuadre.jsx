@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getHistorialPagos } from '../../../services/cajaService';
+import { getHistorialPagos } from '../../../Services/cajaService';
 
 const METODO_INFO = {
   efectivo: { bg:'#E1F5EE', color:'#085041', icon:'💵' },

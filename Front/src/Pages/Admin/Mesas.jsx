@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import Layout from '../../components/admin/Layout';
+import Layout from '../../Components/Admin/Layout';
 import { getMesas, crearMesa, editarMesa,
-         eliminarMesa, desunirMesa } from '../../services/adminService';
+         eliminarMesa, desunirMesa } from '../../Services/adminService';
 
 const ESTADO_INFO = {
   libre:    { bg:'#ECFDF5', color:'#059669', icon:'○', label:'Libre'    },

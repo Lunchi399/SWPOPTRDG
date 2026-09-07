@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import Layout from '../../components/admin/Layout';
+import Layout from '../../Components/Admin/Layout';
 import { getUsuarios, crearUsuario,
-         editarUsuario, eliminarUsuario } from '../../services/adminService';
+         editarUsuario, eliminarUsuario } from '../../Services/adminService';
 
 const ROL_INFO = {
   administrador:{ bg:'#EEF2FF', color:'#4338CA', icon:'👑' },

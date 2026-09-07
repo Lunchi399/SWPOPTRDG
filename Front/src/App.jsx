@@ -1,13 +1,13 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Login      from './pages/Login';
-import Dashboard  from './pages/admin/Dashboard';
-import Usuarios   from './pages/admin/Usuarios';
-import Productos  from './pages/admin/Productos';
-import Mesas      from './pages/admin/Mesas';
-import Reclamos   from './pages/admin/Reclamos';
-import CocinaIndex from './pages/cocina/Index';
-import MeseroIndex from './pages/mesero/Index';
-import CajaIndex from './pages/caja/Index';
+import Login      from './Pages/Login';
+import Dashboard  from './Pages/Admin/Dashboard';
+import Usuarios   from './Pages/Admin/Usuarios';
+import Productos  from './Pages/Admin/Productos';
+import Mesas      from './Pages/Admin/Mesas';
+import Reclamos   from './Pages/Admin/Reclamos';
+import CocinaIndex from './Pages/Cocina/Index';
+import MeseroIndex from './Pages/Mesero/Index';
+import CajaIndex from './Pages/Caja/Index';
 import { isAuthenticated } from './Services/authService';
 import { getRol } from './Services/authService';
 

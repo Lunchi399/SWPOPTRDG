@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getMesas, getReclamos,
-         crearReclamo } from '../../../services/meseroService';
+         crearReclamo } from '../../../Services/meseroService';
 
 export default function TabReclamos() {
   const [mesas,     setMesas]    = useState([]);

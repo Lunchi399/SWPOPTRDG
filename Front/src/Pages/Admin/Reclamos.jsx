@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import Layout from '../../components/admin/Layout';
+import Layout from '../../Components/Admin/Layout';
 import { getReclamos,
-         cambiarEstadoReclamo } from '../../services/adminService';
+         cambiarEstadoReclamo } from '../../Services/adminService';
 
 const TIPO_COLOR = {
   reclamo:    { bg:'#FEF2F2', color:'#DC2626' },

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import Layout from '../../components/admin/Layout';
+import Layout from '../../Components/Admin/Layout';
 import { getProductos, crearProducto, editarProducto,
-         toggleProducto, eliminarProducto } from '../../services/adminService';
+         toggleProducto, eliminarProducto } from '../../Services/adminService';
 
 const CAT_INFO = {
   entrada: { bg:'#ECFDF5', color:'#059669', icon:'🥗' },

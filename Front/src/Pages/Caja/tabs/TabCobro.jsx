@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getPedidosPorCobrar, calcularTotal,
-         registrarPago } from '../../../services/cajaService';
+         registrarPago } from '../../../Services/cajaService';
 
 const METODOS = [
   { id:'efectivo', label:'💵 Efectivo', icon:'💵' },

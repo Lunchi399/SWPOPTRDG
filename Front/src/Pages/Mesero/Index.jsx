@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { logoutService, getUsuario } from '../../services/authService';
+import { logoutService, getUsuario } from '../../Services/authService';
 import { useNavigate } from 'react-router-dom';
 import TabMesas    from './Tabs/TabMesas';
 import TabPedidos  from './Tabs/TabPedidos.jsx';

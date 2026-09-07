@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getHistorial } from '../../../services/meseroService';
+import { getHistorial } from '../../../Services/meseroService';
 
 const ESTADO_INFO = {
   borrador:   { bg:'#F1EFE8', color:'#888'    },

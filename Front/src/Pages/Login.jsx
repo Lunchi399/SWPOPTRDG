@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginService } from '../services/authService';
+import { loginService } from '../Services/authService';
 
 const RUTAS_POR_ROL = {
   administrador: '/admin/dashboard',

@@ -1,0 +1,19 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Python
+Back/venv/
+__pycache__/
+*.pyc
+Back/staticfiles/
+Back/db.sqlite3
+
+# Node
+Front/node_modules/
+Front/dist/
+
+# Editors / OS
+.vscode/
+.DS_Store

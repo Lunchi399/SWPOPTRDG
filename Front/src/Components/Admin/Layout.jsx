@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { logoutService, getUsuario } from '../../services/authService';
+import { logoutService, getUsuario } from '../../Services/authService';
 import { COLORS, SHADOW, RADIUS } from '../../token';
 
 const MENU = [

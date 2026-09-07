@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { getColaCocina, cambiarEstado,
-         enviarAlerta } from '../../../services/cocinaService';
+         enviarAlerta } from '../../../Services/cocinaService';
 
 const ESTADO_INFO = {
   confirmado: { color:'#FAC775', bg:'#2D2416', label:'Nuevo',

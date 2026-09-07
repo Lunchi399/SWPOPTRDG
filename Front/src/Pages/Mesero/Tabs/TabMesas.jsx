@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getMesas, unirMesas, desunirMesa,
          getProductosDisponibles, crearPedido,
-         cambiarEstado } from '../../../services/meseroService';
+         cambiarEstado } from '../../../Services/meseroService';
 
 const ESTADO_COLOR = {
   libre:    { bg:'#ECFDF5', color:'#059669', icon:'○', label:'Libre'    },

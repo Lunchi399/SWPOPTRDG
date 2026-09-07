@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getPedidos, cambiarEstado,
-         cancelarPedido } from '../../../services/meseroService';
+         cancelarPedido } from '../../../Services/meseroService';
 
 const ESTADO_INFO = {
   borrador:   { color:'#888',    bg:'#F1EFE8', label:'Borrador',    siguiente: null },

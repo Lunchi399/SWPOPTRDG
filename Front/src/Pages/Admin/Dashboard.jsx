@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import Layout from '../../components/admin/Layout';
-import { getDashboard, getEstadisticas } from '../../services/adminService';
+import Layout from '../../Components/Admin/Layout';
+import { getDashboard, getEstadisticas } from '../../Services/adminService';
 import { COLORS, SHADOW, RADIUS } from '../../token';
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
