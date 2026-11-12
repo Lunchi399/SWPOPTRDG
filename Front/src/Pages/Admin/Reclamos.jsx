@@ -16,7 +16,7 @@ export default function Reclamos() {
   const cargar = () => {
     setLoading(true);
     api.get('/reclamos/', {
-      headers: { Authorization: `Bearer ${localStorage.getItem('access')}` }
+      headers: { Authorization: `Bearer ${sessionStorage.getItem('access')}` }
     }).then(r => {
       setLista(r.data);
       setLoading(false);
@@ -27,7 +27,7 @@ export default function Reclamos() {
 
   const cambiarEstado = async (id, nuevoEstado) => {
     await api.patch(`/reclamos/${id}/`, { estado: nuevoEstado }, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('access')}` }
+      headers: { Authorization: `Bearer ${sessionStorage.getItem('access')}` }
     });
     cargar();
   };

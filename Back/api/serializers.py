@@ -1,7 +1,10 @@
 from rest_framework import serializers
 from .models import (Usuario, Producto, Mesas, Pedido,
                      DetallePedido, Pago, DetallePago,
-                     DatosFactura, Reclamo)
+                     DatosFactura, Reclamo,TurnoDia, Insumo, PedidoInsumo, DetallePedidoInsumo,
+                    MovimientoInsumo, Receta, DetalleReceta,
+                    NotificacionReceta, Merma
+)
 
 
 class UsuarioSerializer(serializers.ModelSerializer):
@@ -195,3 +198,108 @@ class ReclamoSerializer(serializers.ModelSerializer):
         if obj.id_usuario:
             return f"{obj.id_usuario.first_name} {obj.id_usuario.last_name}"
         return '—'
+
+class TurnoDiaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = TurnoDia
+        fields = ['id_turno', 'fecha', 'hora_inicio',
+                  'hora_cierre', 'estado']
+        read_only_fields = ['id_turno', 'hora_inicio']
+
+
+class InsumoSerializer(serializers.ModelSerializer):
+    en_alerta   = serializers.BooleanField(read_only=True)
+    stock_total = serializers.DecimalField(max_digits=10,
+                                           decimal_places=2,
+                                           read_only=True)
+
+    class Meta:
+        model  = Insumo
+        fields = ['id_insumo', 'nombre', 'categoria',
+                  'unidad_medida', 'tipo_almacenaje',
+                  'stock_almacen', 'stock_utilizacion',
+                  'stock_total', 'stock_minimo',
+                  'en_alerta', 'activo', 'fecha_creacion']
+        read_only_fields = ['id_insumo', 'fecha_creacion']
+
+
+class DetallePedidoInsumoSerializer(serializers.ModelSerializer):
+    insumo_nombre = serializers.CharField(
+        source='id_insumo.nombre', read_only=True)
+
+    class Meta:
+        model  = DetallePedidoInsumo
+        fields = ['id_detalle_pedido_insumo', 'id_insumo',
+                  'insumo_nombre', 'cantidad_solicitada',
+                  'cantidad_recibida']
+
+
+class PedidoInsumoSerializer(serializers.ModelSerializer):
+    detalles = DetallePedidoInsumoSerializer(many=True, read_only=True)
+
+    class Meta:
+        model  = PedidoInsumo
+        fields = ['id_pedido_insumo', 'tipo_pedido',
+                  'distribuidora', 'estado_entrega',
+                  'fecha_solicitado', 'fecha_llegada',
+                  'minutos_espera', 'observaciones', 'detalles']
+        read_only_fields = ['id_pedido_insumo', 'fecha_solicitado']
+
+
+class MovimientoInsumoSerializer(serializers.ModelSerializer):
+    insumo_nombre = serializers.CharField(
+        source='id_insumo.nombre', read_only=True)
+
+    class Meta:
+        model  = MovimientoInsumo
+        fields = ['id_movimiento', 'tipo_movimiento',
+                  'cantidad', 'estado_origen', 'estado_destino',
+                  'motivo', 'fecha_movimiento',
+                  'id_insumo', 'insumo_nombre']
+        read_only_fields = ['id_movimiento', 'fecha_movimiento']
+
+
+class DetalleRecetaSerializer(serializers.ModelSerializer):
+    insumo_nombre   = serializers.CharField(
+        source='id_insumo.nombre', read_only=True)
+    unidad_medida   = serializers.CharField(
+        source='id_insumo.unidad_medida', read_only=True)
+
+    class Meta:
+        model  = DetalleReceta
+        fields = ['id_detalle_receta', 'id_insumo',
+                  'insumo_nombre', 'unidad_medida',
+                  'cantidad_por_porcion']
+
+
+class RecetaSerializer(serializers.ModelSerializer):
+    detalles        = DetalleRecetaSerializer(many=True, read_only=True)
+    producto_nombre = serializers.CharField(
+        source='id_producto.nombre', read_only=True)
+
+    class Meta:
+        model  = Receta
+        fields = ['id_receta', 'id_producto', 'producto_nombre',
+                  'descripcion', 'activa',
+                  'fecha_actualizacion', 'detalles']
+        read_only_fields = ['id_receta', 'fecha_actualizacion']
+
+
+class NotificacionRecetaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = NotificacionReceta
+        fields = ['id_notificacion', 'mensaje', 'leida',
+                  'fecha_creacion', 'id_receta']
+        read_only_fields = ['id_notificacion', 'fecha_creacion']
+
+
+class MermaSerializer(serializers.ModelSerializer):
+    insumo_nombre = serializers.CharField(
+        source='id_insumo.nombre', read_only=True)
+
+    class Meta:
+        model  = Merma
+        fields = ['id_merma', 'id_insumo', 'insumo_nombre',
+                  'cantidad', 'motivo', 'tipo_merma',
+                  'fecha_registro']
+        read_only_fields = ['id_merma', 'fecha_registro']

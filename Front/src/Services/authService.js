@@ -1,47 +1,37 @@
+// authService.js
 import api from './api';
 
-// CU01 — Login
 export const loginService = async (username, password) => {
   const response = await api.post('/login/', { username, password });
 
-  localStorage.setItem('access',  response.data.access);
-  localStorage.setItem('refresh', response.data.refresh);
-  localStorage.setItem('usuario', JSON.stringify(response.data.usuario));
+  // Guardar en sessionStorage
+  sessionStorage.setItem('access',  response.data.access);
+  sessionStorage.setItem('refresh', response.data.refresh);
+  sessionStorage.setItem('usuario', JSON.stringify(response.data.usuario));
 
   return response.data;
 };
 
-// CU02 — Logout
 export const logoutService = async () => {
+  const refresh = sessionStorage.getItem('refresh');
   try {
-    const refresh = localStorage.getItem('refresh');
-    await api.post('/logout/', { refresh }, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('access')}` }
-    });
-  } catch (e) {
-    console.log('Error al cerrar sesión:', e);
-  } finally {
-    localStorage.removeItem('access');
-    localStorage.removeItem('refresh');
-    localStorage.removeItem('usuario');
-  }
+    await api.post('/logout/', { refresh });
+  } catch (e) { /* ignorar */ }
+  sessionStorage.removeItem('access');
+  sessionStorage.removeItem('refresh');
+  sessionStorage.removeItem('usuario');
 };
 
-// Obtener usuario del localStorage
+export const isAuthenticated = () =>
+  !!sessionStorage.getItem('access');
+
 export const getUsuario = () => {
-  const u = localStorage.getItem('usuario');
+  const u = sessionStorage.getItem('usuario');
   return u ? JSON.parse(u) : null;
 };
 
-// Verificar si está autenticado
-export const isAuthenticated = () => {
-  return !!localStorage.getItem('access');
-};
-
-// Obtener rol del usuario
 export const getRol = () => {
   const u = getUsuario();
   if (!u) return null;
-  const rol = u.Rol || u.rol || '';
-  return rol.toLowerCase().trim();  // ← siempre en minúscula
+  return (u.Rol || u.rol || '').toLowerCase().trim();
 };

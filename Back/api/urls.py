@@ -37,5 +37,27 @@ urlpatterns = [
    
     path('caja/cuadre/',               views.cuadre_caja,        name='cuadre-caja'),
     path('caja/historial/',            views.historial_pagos,    name='historial-pagos'),
+    # ── Módulo Inventario ─────────────────────────────────────────
+    path('inventario/turno/',                  views.turno_dia,                name='turno-dia'),
+    path('inventario/turno/<int:pk>/cerrar/',  views.cerrar_turno,             name='cerrar-turno'),
+    path('inventario/insumos/',                views.insumos,                  name='insumos'),
+    path('inventario/insumos/<int:pk>/',       views.insumo_detalle,           name='insumo-detalle'),
+    path('inventario/estado/',                 views.estado_insumos,           name='estado-insumos'),
+    path('inventario/mover/',                  views.mover_insumo,             name='mover-insumo'),
+    path('inventario/estado-insumo/',          views.cambiar_estado_insumo,    name='cambiar-estado-insumo'),
+    path('inventario/movimientos/',            views.historial_movimientos,    name='historial-movimientos'),
+    path('inventario/pedidos/',                views.pedidos_insumo,           name='pedidos-insumo'),
+    path('inventario/pedidos/<int:pk>/entregar/', views.marcar_entrega_insumo, name='entregar-insumo'),
+    path('inventario/recetas/',                views.recetas,                  name='recetas'),
+    path('inventario/recetas/<int:pk>/',       views.receta_detalle,           name='receta-detalle'),
+    path('inventario/disponibilidad/',         views.disponibilidad_por_receta,name='disponibilidad-recetas'),
+    path('inventario/notificaciones/',         views.mis_notificaciones_receta,name='notificaciones-receta'),
+    path('inventario/notificaciones/<int:pk>/leer/', views.marcar_notificacion_leida, name='leer-notificacion'),
+    path('inventario/mermas/',                 views.mermas,                   name='mermas'),
+    path('inventario/dashboard/',              views.dashboard_insumos,        name='dashboard-insumos'),
+    
+
+    #---------- Historial Global ----------------------------------------    
+    path('historial-global/',                  views.historial_global,         name='historial-global'),
 
 ]

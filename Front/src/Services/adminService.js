@@ -1,7 +1,7 @@
 import api from './api';
 
 const getAuthHeader = () => ({
-  headers: { Authorization: `Bearer ${localStorage.getItem('access')}` }
+  headers: { Authorization: `Bearer ${sessionStorage.getItem('access')}` }
 });
 
 // ── Usuarios ──────────────────────────────────────────────────

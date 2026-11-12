@@ -1,7 +1,7 @@
 import api from './api';
 
 const auth = () => ({
-  headers: { Authorization: `Bearer ${localStorage.getItem('access')}` }
+  headers: { Authorization: `Bearer ${sessionStorage.getItem('access')}` }
 });
 
 // Cola de pedidos activos

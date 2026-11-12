@@ -321,7 +321,7 @@ class Reclamo(models.Model):
                                        default='pendiente')
     id_pedido  = models.ForeignKey(Pedido, on_delete=models.SET_NULL,
                                    null=True, blank=True,
-                                   db_column='id_pedido',
+                                   db_column='id_pedidos',
                                    related_name='reclamos')
     id_usuario = models.ForeignKey(Usuario, on_delete=models.SET_NULL,
                                    null=True,
@@ -332,3 +332,257 @@ class Reclamo(models.Model):
         db_table = 'reclamo'
         managed  = False
         ordering = ['-tiempo_creacion']
+
+class TurnoDia(models.Model):
+    ESTADO_CHOICES = [
+        ('abierto', 'Abierto'),
+        ('cerrado', 'Cerrado'),
+    ]
+    id_turno             = models.AutoField(primary_key=True)
+    fecha                = models.DateField(unique=True)
+    hora_inicio          = models.DateTimeField(auto_now_add=True)
+    hora_cierre          = models.DateTimeField(null=True, blank=True)
+    estado               = models.CharField(max_length=20,
+                                            choices=ESTADO_CHOICES,
+                                            default='abierto')
+    id_usuario_apertura  = models.ForeignKey('Usuario',
+                                              on_delete=models.SET_NULL,
+                                              null=True,
+                                              db_column='id_usuario_apertura',
+                                              related_name='turnos_abiertos')
+    id_usuario_cierre    = models.ForeignKey('Usuario',
+                                              on_delete=models.SET_NULL,
+                                              null=True, blank=True,
+                                              db_column='id_usuario_cierre',
+                                              related_name='turnos_cerrados')
+
+    class Meta:
+        db_table = 'turno_dia'
+        managed  = False
+        ordering = ['-fecha']
+
+    def __str__(self):
+        return f"Turno {self.fecha} — {self.estado}"
+
+class Insumo(models.Model):
+    CATEGORIA_CHOICES = [
+        ('carnes',    'Carnes'),
+        ('verduras',  'Verduras'),
+        ('lacteos',   'Lácteos'),
+        ('bebidas',   'Bebidas'),
+        ('abarrotes', 'Abarrotes'),
+        ('otros',     'Otros'),
+    ]
+    ALMACENAJE_CHOICES = [
+        ('paquetes', 'Paquetes'),
+        ('cajas',    'Cajas'),
+        ('botellas', 'Botellas'),
+        ('baldes',   'Baldes'),
+        ('otros',    'Otros'),
+    ]
+    id_insumo         = models.AutoField(primary_key=True)
+    nombre            = models.CharField(max_length=150)
+    categoria         = models.CharField(max_length=30,
+                                         choices=CATEGORIA_CHOICES)
+    unidad_medida     = models.CharField(max_length=30)
+    tipo_almacenaje   = models.CharField(max_length=30,
+                                         choices=ALMACENAJE_CHOICES)
+    stock_almacen     = models.DecimalField(max_digits=10,
+                                            decimal_places=2, default=0)
+    stock_utilizacion = models.DecimalField(max_digits=10,
+                                            decimal_places=2, default=0)
+    stock_minimo      = models.DecimalField(max_digits=10,
+                                            decimal_places=2, default=0)
+    activo            = models.BooleanField(default=True)
+    fecha_creacion    = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'insumo'
+        managed  = False
+        ordering = ['categoria', 'nombre']
+
+    def __str__(self):
+        return f"{self.nombre} ({self.unidad_medida})"
+
+    @property
+    def stock_total(self):
+        return self.stock_almacen + self.stock_utilizacion
+
+    @property
+    def en_alerta(self):
+        return self.stock_almacen <= self.stock_minimo
+
+class PedidoInsumo(models.Model):
+    TIPO_CHOICES = [
+        ('programado',  'Programado'),
+        ('espontaneo',  'Espontáneo'),
+    ]
+    ESTADO_CHOICES = [
+        ('pendiente',  'Pendiente'),
+        ('entregado',  'Entregado'),
+    ]
+    id_pedido_insumo = models.AutoField(primary_key=True)
+    tipo_pedido      = models.CharField(max_length=20,
+                                        choices=TIPO_CHOICES)
+    distribuidora    = models.CharField(max_length=150)
+    estado_entrega   = models.CharField(max_length=20,
+                                        choices=ESTADO_CHOICES,
+                                        default='pendiente')
+    fecha_solicitado = models.DateTimeField(auto_now_add=True)
+    fecha_llegada    = models.DateTimeField(null=True, blank=True)
+    minutos_espera   = models.IntegerField(null=True, blank=True)
+    observaciones    = models.CharField(max_length=255,
+                                        blank=True, null=True)
+    id_usuario       = models.ForeignKey('Usuario',
+                                          on_delete=models.SET_NULL,
+                                          null=True,
+                                          db_column='id_usuario',
+                                          related_name='pedidos_insumos')
+
+    class Meta:
+        db_table = 'pedido_insumo'
+        managed  = False
+        ordering = ['-fecha_solicitado']
+
+class DetallePedidoInsumo(models.Model):
+    id_detalle_pedido_insumo = models.AutoField(primary_key=True)
+    cantidad_solicitada      = models.DecimalField(max_digits=10,
+                                                   decimal_places=2)
+    cantidad_recibida        = models.DecimalField(max_digits=10,
+                                                   decimal_places=2,
+                                                   null=True, blank=True)
+    id_pedido_insumo = models.ForeignKey(PedidoInsumo,
+                                          on_delete=models.CASCADE,
+                                          db_column='id_pedido_insumo',
+                                          related_name='detalles')
+    id_insumo        = models.ForeignKey(Insumo,
+                                          on_delete=models.CASCADE,
+                                          db_column='id_insumo',
+                                          related_name='detalles_pedido')
+
+    class Meta:
+        db_table = 'detalle_pedido_insumo'
+        managed  = False        
+
+
+class MovimientoInsumo(models.Model):
+    TIPO_CHOICES = [
+        ('entrada',              'Entrada de compra'),
+        ('almacen_a_utilizacion','Almacén → Utilización'),
+        ('utilizado',            'Utilizado'),
+        ('desperdiciado',        'Desperdiciado'),
+    ]
+    id_movimiento    = models.AutoField(primary_key=True)
+    tipo_movimiento  = models.CharField(max_length=30,
+                                        choices=TIPO_CHOICES)
+    cantidad         = models.DecimalField(max_digits=10, decimal_places=2)
+    estado_origen    = models.CharField(max_length=20)
+    estado_destino   = models.CharField(max_length=20)
+    motivo           = models.CharField(max_length=255,
+                                        blank=True, null=True)
+    fecha_movimiento = models.DateTimeField(auto_now_add=True)
+    id_insumo        = models.ForeignKey(Insumo,
+                                          on_delete=models.CASCADE,
+                                          db_column='id_insumo',
+                                          related_name='movimientos')
+    id_usuario       = models.ForeignKey('Usuario',
+                                          on_delete=models.SET_NULL,
+                                          null=True,
+                                          db_column='id_usuario',
+                                          related_name='movimientos_insumos')
+    id_pedidos       = models.ForeignKey('Pedido',
+                                          on_delete=models.SET_NULL,
+                                          null=True, blank=True,
+                                          db_column='id_pedidos',
+                                          related_name='movimientos_insumos')
+
+    class Meta:
+        db_table = 'movimiento_insumo'
+        managed  = False
+        ordering = ['-fecha_movimiento']
+
+
+class Receta(models.Model):
+    id_receta           = models.AutoField(primary_key=True)
+    id_producto         = models.OneToOneField('Producto',
+                                               on_delete=models.CASCADE,
+                                               db_column='id_producto',
+                                               related_name='receta')
+    descripcion         = models.CharField(max_length=255,
+                                           blank=True, null=True)
+    activa              = models.BooleanField(default=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'receta'
+        managed  = False
+
+    def __str__(self):
+        return f"Receta de {self.id_producto.nombre}"
+
+
+class DetalleReceta(models.Model):
+    id_detalle_receta    = models.AutoField(primary_key=True)
+    cantidad_por_porcion = models.DecimalField(max_digits=10,
+                                               decimal_places=4)
+    id_receta  = models.ForeignKey(Receta,
+                                   on_delete=models.CASCADE,
+                                   db_column='id_receta',
+                                   related_name='detalles')
+    id_insumo  = models.ForeignKey(Insumo,
+                                   on_delete=models.CASCADE,
+                                   db_column='id_insumo',
+                                   related_name='detalles_receta')
+
+    class Meta:
+        db_table = 'detalle_receta'
+        managed  = False
+        unique_together = [('id_receta', 'id_insumo')]
+
+class NotificacionReceta(models.Model):
+    id_notificacion = models.AutoField(primary_key=True)
+    mensaje         = models.CharField(max_length=255)
+    leida           = models.BooleanField(default=False)
+    fecha_creacion  = models.DateTimeField(auto_now_add=True)
+    id_receta       = models.ForeignKey(Receta,
+                                        on_delete=models.CASCADE,
+                                        db_column='id_receta',
+                                        related_name='notificaciones')
+    id_usuario      = models.ForeignKey('Usuario',
+                                        on_delete=models.SET_NULL,
+                                        null=True,
+                                        db_column='id_usuario',
+                                        related_name='notificaciones_receta')
+
+    class Meta:
+        db_table = 'notificacion_receta'
+        managed  = False
+        ordering = ['-fecha_creacion']
+
+
+class Merma(models.Model):
+    TIPO_CHOICES = [
+        ('sobrante',    'Sobrante'),
+        ('desperdicio', 'Desperdicio'),
+    ]
+    id_merma       = models.AutoField(primary_key=True)
+    cantidad       = models.DecimalField(max_digits=10, decimal_places=2)
+    motivo         = models.CharField(max_length=255,
+                                      blank=True, null=True)
+    tipo_merma     = models.CharField(max_length=20,
+                                      choices=TIPO_CHOICES)
+    fecha_registro = models.DateTimeField(auto_now_add=True)
+    id_insumo      = models.ForeignKey(Insumo,
+                                       on_delete=models.CASCADE,
+                                       db_column='id_insumo',
+                                       related_name='mermas')
+    id_usuario     = models.ForeignKey('Usuario',
+                                       on_delete=models.SET_NULL,
+                                       null=True,
+                                       db_column='id_usuario',
+                                       related_name='mermas_registradas')
+
+    class Meta:
+        db_table = 'merma'
+        managed  = False
+        ordering = ['-fecha_registro']

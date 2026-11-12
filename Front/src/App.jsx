@@ -10,6 +10,8 @@ import MeseroIndex from './pages/mesero/Index';
 import CajaIndex from './pages/caja/Index';
 import { isAuthenticated } from './Services/authService';
 import { getRol } from './Services/authService';
+import Inventario from './pages/admin/Inventario';
+import Historial from './pages/admin/Historial';
 
 function RutaPrivada({ children, rolRequerido }) {
   if (!isAuthenticated()) return <Navigate to="/login" />;
@@ -33,6 +35,13 @@ function App() {
           element={
             <RutaPrivada rolRequerido="administrador">
               <Dashboard />
+            </RutaPrivada>
+          }
+        />
+        <Route path="/admin/inventario"
+          element={
+            <RutaPrivada rolRequerido="administrador">
+              <Inventario />
             </RutaPrivada>
           }
         />
@@ -64,6 +73,16 @@ function App() {
             </RutaPrivada>
           }
         />
+
+        <Route path="/admin/inventario"
+          element={
+          <RutaPrivada rolRequerido="administrador">
+            <Inventario />
+            </RutaPrivada>
+          }
+          />
+          <Route path="/admin/historial"
+  element={<RutaPrivada rolRequerido="administrador"><Historial /></RutaPrivada>} />
 
         {/* Mesero */}
         <Route path="/mesero/mesas"

@@ -1,7 +1,7 @@
 import api from './api';
 
 const auth = () => ({
-  headers: { Authorization: `Bearer ${localStorage.getItem('access')}` }
+  headers: { Authorization: `Bearer ${sessionStorage.getItem('access')}` }
 });
 
 // CU15 — Pedidos listos para cobrar

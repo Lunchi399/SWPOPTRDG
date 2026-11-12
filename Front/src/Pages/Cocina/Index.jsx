@@ -6,6 +6,7 @@ import TabHistorial from './tabs/TabHistorial';
 
 const TABS = [
   { id: 'cola',     label: '👨‍🍳 Cola de pedidos' },
+  { id:'recetas',  label:'📋 Recetas'          }, 
   { id: 'historial',label: '📜 Historial'        },
 ];
 
@@ -64,6 +65,7 @@ export default function CocinaIndex() {
           <TabCola onContarPendientes={setPedidosPendientes} />
         )}
         {tabActiva === 'historial' && <TabHistorial />}
+        {tabActiva === 'recetas' && <TabRecetasCocina />}
       </div>
     </div>
   );

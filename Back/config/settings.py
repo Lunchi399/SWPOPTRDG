@@ -46,9 +46,9 @@ REST_FRAMEWORK = {
         # Reemplaza el JWTAuthentication por el personalizado
         'api.authentication.UsuarioJWTAuthentication',
     ),
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
-    ),
+  #  'DEFAULT_PERMISSION_CLASSES': (
+   #     'rest_framework.permissions.IsAuthenticated',
+   # ),
 }
 from datetime import timedelta
 

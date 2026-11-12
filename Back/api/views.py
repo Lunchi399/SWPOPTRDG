@@ -1,4 +1,5 @@
 from rest_framework.decorators import api_view, permission_classes
+from decimal import Decimal, ROUND_HALF_UP
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
@@ -6,21 +7,48 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.utils import timezone
 from api.backends import UsuarioBackend
+from django.db import transaction
 
 from .models import (Usuario, Producto, Mesas, Pedido,
-                     DetallePedido, Pago, DetallePago,
-                     DatosFactura, Reclamo)
+                    DetallePedido, Pago, DetallePago,
+                    DatosFactura, Reclamo, TurnoDia, Insumo, PedidoInsumo, DetallePedidoInsumo,
+                    MovimientoInsumo, Receta, DetalleReceta,
+                    NotificacionReceta, Merma)
 from .serializers import (UsuarioSerializer, CrearUsuarioSerializer,
                            EditarUsuarioSerializer, ProductoSerializer,
                            MesaSerializer, PedidoSerializer,
-                           PagoSerializer, ReclamoSerializer)
+                           PagoSerializer, ReclamoSerializer,  TurnoDiaSerializer, InsumoSerializer,
+                        PedidoInsumoSerializer, DetallePedidoInsumoSerializer,
+                        MovimientoInsumoSerializer, RecetaSerializer,
+                        DetalleRecetaSerializer, NotificacionRecetaSerializer,
+                        MermaSerializer)
 from .permissions import EsAdministrador, EsMesero, EsCocinero, EsCajero
+from django.utils.dateparse import parse_date
 
 
 # ══════════════════════════════════════════════════════════════
 # PAQUETE 1 — Autenticación
 # ══════════════════════════════════════════════════════════════
-
+def filtrar_por_fechas(qs, request, campo, defecto='hoy'):
+    """
+    ?todo=true                 -> historial completo
+    ?desde=YYYY-MM-DD&hasta=.. -> rango
+    sin parámetros             -> hoy (defecto='hoy') o todo (defecto='todo')
+    """
+    p = request.query_params
+    if p.get('todo') == 'true':
+        return qs
+    desde = parse_date(p.get('desde') or '')
+    hasta = parse_date(p.get('hasta') or '')
+    if desde or hasta:
+        if desde:
+            qs = qs.filter(**{f'{campo}__date__gte': desde})
+        if hasta:
+            qs = qs.filter(**{f'{campo}__date__lte': hasta})
+        return qs
+    if defecto == 'hoy':
+        return qs.filter(**{f'{campo}__date': timezone.localdate()})
+    return qs
 # CU01 — Iniciar sesión
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -688,13 +716,11 @@ def historial_cocina(request):
         return Response({'error': 'Sin permisos'},
                         status=status.HTTP_403_FORBIDDEN)
 
-    hoy = timezone.now().date()
-    qs  = Pedido.objects.filter(
-        tiempo_creacion__date=hoy,
-        estado__in=['listo', 'despachado', 'pagado', 'cancelado']
-    ).order_by('-tiempo_creacion')
-
-    return Response(PedidoSerializer(qs, many=True).data)
+    qs = Pedido.objects.filter(
+        estado__in=['listo', 'despachado', 'pagado', 'cancelado'])
+    qs = filtrar_por_fechas(qs, request, 'tiempo_creacion')
+    return Response(PedidoSerializer(
+        qs.order_by('-tiempo_creacion')[:1000], many=True).data)    
 
 
 # CU13 — Enviar alerta desde cocina
@@ -776,138 +802,200 @@ def calcular_total(request, pk):
     if request.user.Rol not in ('cajero', 'administrador'):
         return Response({'error': 'Sin permisos'},
                         status=status.HTTP_403_FORBIDDEN)
-
+ 
     try:
         pedido = Pedido.objects.get(pk=pk)
     except Pedido.DoesNotExist:
         return Response({'error': 'Pedido no encontrado'},
                         status=status.HTTP_404_NOT_FOUND)
-
+ 
     detalles = pedido.detalles.all()
-    subtotal  = sum(
-        d.cantidad * d.id_producto.precio
-        for d in detalles if d.id_producto
+ 
+    # Calcular subtotal usando solo Decimal
+    subtotal = sum(
+        Decimal(str(d.cantidad)) * d.id_producto.precio
+        for d in detalles
+        if d.id_producto
     )
-    igv       = round(float(subtotal * (18/100)), 2)
-    total     = round(subtotal + igv, 2)
-
+ 
+    igv   = (subtotal * Decimal('0.18')).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+    total = (subtotal + igv).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+ 
     return Response({
-        'id_pedidos':       pedido.id_pedidos,
-        'mesa':             pedido.id_mesa.identificador_mesa
-                            if pedido.id_mesa else '—',
-        'subtotal':         subtotal,
-        'igv':              igv,
-        'total':            total,
+        'id_pedidos': pedido.id_pedidos,
+        'mesa':       pedido.id_mesa.identificador_mesa
+                      if pedido.id_mesa else '—',
+        'subtotal':   str(subtotal),
+        'igv':        str(igv),
+        'total':      str(total),
         'detalles': [
             {
                 'nombre':   d.id_producto.nombre,
                 'cantidad': d.cantidad,
                 'precio':   str(d.id_producto.precio),
-                'subtotal': str(d.cantidad * d.id_producto.precio),
+                'subtotal': str(
+                    Decimal(str(d.cantidad)) * d.id_producto.precio
+                ),
             }
             for d in detalles if d.id_producto
         ]
     })
-
-# CU15/CU16 — Registrar Pago
+ 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def registrar_pago(request):
     if request.user.Rol not in ('cajero', 'administrador'):
         return Response({'error': 'Sin permisos'},
                         status=status.HTTP_403_FORBIDDEN)
-
+ 
     id_pedidos       = request.data.get('id_pedidos')
     metodo_pago      = request.data.get('metodo_pago', 'efectivo')
     monto_recibido   = request.data.get('monto_recibido')
     tipo_comprobante = request.data.get('tipo_comprobante', 'boleta')
     datos_factura    = request.data.get('datos_factura', None)
-
+ 
     try:
         pedido = Pedido.objects.get(pk=id_pedidos)
     except Pedido.DoesNotExist:
         return Response({'error': 'Pedido no encontrado'},
                         status=status.HTTP_404_NOT_FOUND)
-
-    if pedido.estado != 'despachado':
+ 
+    # ── Verificar que el pedido no fue pagado ya ──────────────
+    if pedido.estado == 'pagado':
         return Response(
-            {'error': 'El pedido no está listo para cobrar'},
+            {'error': 'Este pedido ya fue pagado anteriormente'},
             status=status.HTTP_400_BAD_REQUEST
         )
-
+ 
+    # ── Verificar que no existe ya un pago para este pedido ───
+    pago_existente = Pago.objects.filter(id_pedidos=pedido).first()
+    if pago_existente:
+        # Sincronizar el estado del pedido y liberar la mesa
+        pedido.estado = 'pagado'
+        pedido.save()
+        if pedido.id_mesa:
+            pedido.id_mesa.estado = 'libre'
+            pedido.id_mesa.save()
+        return Response(
+            {'error': 'Este pedido ya tiene un pago registrado. '
+                      'El estado del pedido ha sido sincronizado.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+ 
+    if pedido.estado != 'despachado':
+        return Response(
+            {'error': f'El pedido está en estado "{pedido.estado}". '
+                       'Solo se pueden cobrar pedidos despachados.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+ 
     # Calcular montos
-    detalles      = pedido.detalles.all()
-    subtotal      = sum(
-        d.cantidad * d.id_producto.precio
+    from decimal import Decimal, ROUND_HALF_UP
+    detalles    = pedido.detalles.all()
+    subtotal    = sum(
+        Decimal(str(d.cantidad)) * d.id_producto.precio
         for d in detalles if d.id_producto
     )
-    igv           = round(float(subtotal) * 0.18, 2)
-    monto_total   = round(float(subtotal) + igv, 2)
-    monto_recibido = float(monto_recibido or monto_total)
-    vuelto        = round(monto_recibido - monto_total, 2)
-
-    if vuelto < 0:
+    igv         = (subtotal * Decimal('0.18')).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP)
+    monto_total = (subtotal + igv).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP)
+ 
+    monto_recibido = Decimal(str(monto_recibido or monto_total))
+    vuelto = (monto_recibido - monto_total).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP)
+ 
+    if vuelto < Decimal('0'):
         return Response(
             {'error': f'Monto insuficiente. Total: S/. {monto_total}'},
             status=status.HTTP_400_BAD_REQUEST
         )
-
-    # Validar datos de factura si el comprobante es factura
-    if tipo_comprobante == 'factura' and not datos_factura:
-        return Response(
-            {'error': 'Se requieren datos de factura (RUC y razón social)'},
-            status=status.HTTP_400_BAD_REQUEST
+ 
+    if tipo_comprobante == 'factura':
+        if not datos_factura:
+            return Response(
+                {'error': 'Se requieren datos de factura'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        ruc = datos_factura.get('ruc', '').strip()
+        if not ruc.isdigit() or len(ruc) != 11:
+            return Response(
+                {'error': 'El RUC debe tener exactamente 11 dígitos'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+ 
+    # Crear pago con manejo de error de duplicado
+    try:
+        pago = Pago.objects.create(
+            monto_total      = monto_total,
+            monto_recibido   = monto_recibido,
+            vuelto           = vuelto,
+            metodo_pago      = metodo_pago,
+            estado           = 'completado',
+            tipo_comprobante = tipo_comprobante,
+            id               = request.user,
+            id_pedidos       = pedido,
         )
-
-    # Crear pago
-    pago = Pago.objects.create(
-        monto_total      = monto_total,
-        monto_recibido   = monto_recibido,
-        vuelto           = vuelto,
-        metodo_pago      = metodo_pago,
-        estado           = 'completado',
-        tipo_comprobante = tipo_comprobante,
-        id               = request.user,
-        id_pedidos       = pedido,
-    )
-
+    except Exception as e:
+        # Si hay duplicado por condición de carrera
+        if 'duplicate key' in str(e).lower():
+            pedido.estado = 'pagado'
+            pedido.save()
+            if pedido.id_mesa:
+                pedido.id_mesa.estado = 'libre'
+                pedido.id_mesa.save()
+            return Response(
+                {'error': 'El pago ya fue registrado. '
+                          'El pedido ha sido marcado como pagado.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return Response(
+            {'error': f'Error al registrar pago: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+ 
     # Crear detalle del pago
     for d in detalles:
         if d.id_producto:
+            subtotal_det = (
+                Decimal(str(d.cantidad)) * d.id_producto.precio
+            ).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             DetallePago.objects.create(
                 id_pago         = pago,
                 nombre_producto = d.id_producto.nombre,
                 cantidad        = d.cantidad,
                 precio_unitario = d.id_producto.precio,
-                subtotal        = d.cantidad * d.id_producto.precio,
+                subtotal        = subtotal_det,
             )
-
-    # Crear datos de factura si corresponde
+ 
+    # Crear datos de factura
     if tipo_comprobante == 'factura' and datos_factura:
         DatosFactura.objects.create(
             id_pago          = pago,
-            ruc              = datos_factura.get('ruc', ''),
+            ruc              = datos_factura.get('ruc', '').strip(),
             razon_social     = datos_factura.get('razon_social', ''),
             direccion_fiscal = datos_factura.get('direccion_fiscal', ''),
         )
-
-    # Actualizar estado del pedido a pagado
+ 
+    # Actualizar pedido y mesa
     pedido.estado = 'pagado'
     pedido.save()
-
-    # Liberar la mesa
+ 
     if pedido.id_mesa:
         pedido.id_mesa.estado = 'libre'
         pedido.id_mesa.save()
-
+ 
     return Response({
-        'mensaje':       'Pago registrado correctamente',
-        'pago':          PagoSerializer(pago).data,
-        'vuelto':        vuelto,
-        'monto_total':   monto_total,
+        'mensaje':        '\u2705 Pago registrado correctamente',
+        'pago':           PagoSerializer(pago).data,
+        'vuelto':         str(vuelto),
+        'monto_total':    str(monto_total),
         'tipo_comprobante': tipo_comprobante,
     }, status=status.HTTP_201_CREATED)
-
 
 # CU16 — Cuadre de caja
 @api_view(['GET'])
@@ -983,5 +1071,803 @@ def historial_pagos(request):
                         status=status.HTTP_403_FORBIDDEN)
 
     hoy   = timezone.now().date()
-    pagos = Pago.objects.filter(fecha_cobro__date=hoy)
-    return Response(PagoSerializer(pagos, many=True).data)
+    pagos = filtrar_por_fechas(Pago.objects.all(), request, 'fecha_cobro')
+    return Response(PagoSerializer(pagos[:1000], many=True).data)
+
+# ══════════════════════════════════════════════════════════════
+# CU-INV: Inicio y fin del día (RFN35, RFN47)
+# ══════════════════════════════════════════════════════════════
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def turno_dia(request):
+    if request.method == 'GET':
+        turno = TurnoDia.objects.filter(
+            fecha=timezone.now().date()
+        ).first()
+        if not turno:
+            return Response({'estado': 'sin_turno',
+                             'mensaje': 'No hay turno abierto hoy'})
+        return Response(TurnoDiaSerializer(turno).data)
+
+    if request.method == 'POST':
+        if request.user.Rol != 'administrador':
+            return Response({'error': 'Sin permisos'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        hoy   = timezone.localdate()
+        turno = TurnoDia.objects.filter(fecha=hoy).first()
+
+        if turno and turno.estado == 'abierto':
+            return Response({'error': 'Ya hay un turno abierto hoy'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        if turno:                      # el día se cerró antes → se reabre
+            turno.estado            = 'abierto'
+            turno.hora_cierre       = None
+            turno.id_usuario_cierre = None
+            turno.save()
+            return Response(TurnoDiaSerializer(turno).data)
+
+        turno = TurnoDia.objects.create(
+            fecha=hoy, estado='abierto', id_usuario_apertura=request.user)
+        return Response(TurnoDiaSerializer(turno).data,
+                        status=status.HTTP_201_CREATED)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def cerrar_turno(request, pk):
+    if request.user.Rol != 'administrador':
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+    try:
+        turno = TurnoDia.objects.get(pk=pk)
+    except TurnoDia.DoesNotExist:
+        return Response({'error': 'Turno no encontrado'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    if turno.estado == 'cerrado':
+        return Response({'error': 'El turno ya está cerrado'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    turno.estado            = 'cerrado'
+    turno.hora_cierre       = timezone.now()
+    turno.id_usuario_cierre = request.user
+    turno.save()
+    return Response({
+        'mensaje': 'Turno cerrado correctamente',
+        'turno':   TurnoDiaSerializer(turno).data
+    })
+
+
+# ══════════════════════════════════════════════════════════════
+# CU-INV20: Gestión de insumos (RFN37)
+# ══════════════════════════════════════════════════════════════
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def insumos(request):
+    if request.method == 'GET':
+        categoria = request.query_params.get('categoria')
+        alerta    = request.query_params.get('alerta')
+        qs = Insumo.objects.filter(activo=True)
+        if categoria:
+            qs = qs.filter(categoria=categoria)
+        serialized = InsumoSerializer(qs, many=True).data
+        if alerta == 'true':
+            serialized = [i for i in serialized if i['en_alerta']]
+        return Response(serialized)
+
+    if request.method == 'POST':
+        if request.user.Rol != 'administrador':
+            return Response({'error': 'Sin permisos'},
+                            status=status.HTTP_403_FORBIDDEN)
+        serializer = InsumoSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data,
+                            status=status.HTTP_201_CREATED)
+        return Response(serializer.errors,
+                        status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET', 'PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def insumo_detalle(request, pk):
+    try:
+        insumo = Insumo.objects.get(pk=pk)
+    except Insumo.DoesNotExist:
+        return Response({'error': 'Insumo no encontrado'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        return Response(InsumoSerializer(insumo).data)
+
+    if request.user.Rol != 'administrador':
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    if request.method == 'PUT':
+        serializer = InsumoSerializer(insumo, data=request.data,
+                                      partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(InsumoSerializer(insumo).data)
+        return Response(serializer.errors,
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    if request.method == 'DELETE':
+        insumo.activo = False
+        insumo.save()
+        return Response({'mensaje': 'Insumo desactivado'})
+
+
+# ══════════════════════════════════════════════════════════════
+# CU-INV19: Pedidos de insumos (RFN36, RFN38)
+# ══════════════════════════════════════════════════════════════
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def pedidos_insumo(request):
+    if request.method == 'GET':
+        qs = PedidoInsumo.objects.all()
+        tipo = request.query_params.get('tipo')
+        if tipo:
+            qs = qs.filter(tipo_pedido=tipo)
+        return Response(PedidoInsumoSerializer(qs, many=True).data)
+
+    if request.method == 'POST':
+        if request.user.Rol != 'administrador':
+            return Response({'error': 'Sin permisos'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        detalles_data = request.data.get('detalles', [])
+        if not detalles_data:
+            return Response(
+                {'error': 'Debe incluir al menos un insumo'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        pedido = PedidoInsumo.objects.create(
+            tipo_pedido    = request.data.get('tipo_pedido'),
+            distribuidora  = request.data.get('distribuidora'),
+            observaciones  = request.data.get('observaciones', ''),
+            id_usuario     = request.user,
+        )
+
+        for d in detalles_data:
+            try:
+                insumo = Insumo.objects.get(pk=d['id_insumo'])
+                DetallePedidoInsumo.objects.create(
+                    id_pedido_insumo    = pedido,
+                    id_insumo           = insumo,
+                    cantidad_solicitada = d.get('cantidad_solicitada', 0),
+                )
+            except Insumo.DoesNotExist:
+                pass
+
+        return Response(PedidoInsumoSerializer(pedido).data,
+                        status=status.HTTP_201_CREATED)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def marcar_entrega_insumo(request, pk):
+    """Marcar pedido de insumo como entregado y actualizar stock."""
+    if request.user.Rol != 'administrador':
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+    try:
+        pedido = PedidoInsumo.objects.get(pk=pk)
+    except PedidoInsumo.DoesNotExist:
+        return Response({'error': 'Pedido no encontrado'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    if pedido.estado_entrega == 'entregado':
+        return Response({'error': 'Ya fue marcado como entregado'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    from decimal import Decimal
+    pedido.estado_entrega = 'entregado'
+    pedido.fecha_llegada  = timezone.now()
+
+    # Calcular minutos de espera para pedidos espontáneos
+    diff = pedido.fecha_llegada - pedido.fecha_solicitado
+    pedido.minutos_espera = int(diff.total_seconds() / 60)
+    pedido.save()
+
+    # Actualizar stock de cada insumo y registrar movimiento
+    for detalle in pedido.detalles.all():
+        cant = request.data.get(
+            f'cantidad_recibida_{detalle.id_insumo_id}',
+            detalle.cantidad_solicitada
+        )
+        cant = Decimal(str(cant))
+        detalle.cantidad_recibida = cant
+        detalle.save()
+
+        insumo = detalle.id_insumo
+        insumo.stock_almacen += cant
+        insumo.save()
+
+        MovimientoInsumo.objects.create(
+            tipo_movimiento = 'entrada',
+            cantidad        = cant,
+            estado_origen   = 'externo',
+            estado_destino  = 'almacen',
+            motivo          = f'Pedido #{pedido.id_pedido_insumo}',
+            id_insumo       = insumo,
+            id_usuario      = request.user,
+        )
+
+    return Response({
+        'mensaje':        'Entrega registrada y stock actualizado',
+        'minutos_espera': pedido.minutos_espera,
+        'pedido':         PedidoInsumoSerializer(pedido).data,
+    })
+
+
+# ══════════════════════════════════════════════════════════════
+# CU-INV22: Gestión de movimientos (RFN39, RFN40, RFN43)
+# ══════════════════════════════════════════════════════════════
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def estado_insumos(request):
+    """Vista de estados de todos los insumos activos."""
+    qs = Insumo.objects.filter(activo=True)
+    return Response({
+        'almacen':     InsumoSerializer(
+                        qs.filter(stock_almacen__gt=0), many=True).data,
+        'utilizacion': InsumoSerializer(
+                        qs.filter(stock_utilizacion__gt=0), many=True).data,
+        'alertas':     InsumoSerializer(
+                        [i for i in qs
+                         if i.stock_almacen <= i.stock_minimo],
+                        many=True).data,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mover_insumo(request):
+    """Mover cantidad de almacén → utilización (RFN39)."""
+    if request.user.Rol not in ('administrador', 'cocinero'):
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    from decimal import Decimal
+    id_insumo = request.data.get('id_insumo')
+    cantidad  = Decimal(str(request.data.get('cantidad', 0)))
+
+    try:
+        insumo = Insumo.objects.get(pk=id_insumo)
+    except Insumo.DoesNotExist:
+        return Response({'error': 'Insumo no encontrado'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    if cantidad <= 0:
+        return Response({'error': 'La cantidad debe ser mayor a 0'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    if insumo.stock_almacen < cantidad:
+        return Response(
+            {'error': f'Stock insuficiente en almacén. '
+                      f'Disponible: {insumo.stock_almacen}'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    insumo.stock_almacen     -= cantidad
+    insumo.stock_utilizacion += cantidad
+    insumo.save()
+
+    mov = MovimientoInsumo.objects.create(
+        tipo_movimiento = 'almacen_a_utilizacion',
+        cantidad        = cantidad,
+        estado_origen   = 'almacen',
+        estado_destino  = 'utilizacion',
+        motivo          = request.data.get('motivo', ''),
+        id_insumo       = insumo,
+        id_usuario      = request.user,
+    )
+
+    return Response({
+        'mensaje':   'Insumo movido a utilización',
+        'insumo':    InsumoSerializer(insumo).data,
+        'movimiento': MovimientoInsumoSerializer(mov).data,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def cambiar_estado_insumo(request):
+    """Cocinero cambia estado: utilizado o desperdiciado (RFN43)."""
+    if request.user.Rol not in ('cocinero', 'administrador'):
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    from decimal import Decimal
+    id_insumo  = request.data.get('id_insumo')
+    cantidad   = Decimal(str(request.data.get('cantidad', 0)))
+    nuevo_est  = request.data.get('estado')
+
+    if nuevo_est not in ('utilizado', 'desperdiciado'):
+        return Response({'error': 'Estado no válido'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        insumo = Insumo.objects.get(pk=id_insumo)
+    except Insumo.DoesNotExist:
+        return Response({'error': 'Insumo no encontrado'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    if insumo.stock_utilizacion < cantidad:
+        return Response(
+            {'error': 'Cantidad mayor al stock en utilización'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    insumo.stock_utilizacion -= cantidad
+    insumo.save()
+
+    MovimientoInsumo.objects.create(
+        tipo_movimiento = nuevo_est,
+        cantidad        = cantidad,
+        estado_origen   = 'utilizacion',
+        estado_destino  = nuevo_est,
+        motivo          = request.data.get('motivo', ''),
+        id_insumo       = insumo,
+        id_usuario      = request.user,
+    )
+
+    return Response({
+        'mensaje': f'Insumo marcado como {nuevo_est}',
+        'insumo':  InsumoSerializer(insumo).data,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def historial_movimientos(request):
+    qs = MovimientoInsumo.objects.select_related('id_insumo')
+    id_insumo = request.query_params.get('id_insumo')
+    tipo      = request.query_params.get('tipo')
+    if id_insumo: qs = qs.filter(id_insumo=id_insumo)
+    if tipo:      qs = qs.filter(tipo_movimiento=tipo)
+    qs = filtrar_por_fechas(qs, request, 'fecha_movimiento', defecto='todo')
+    return Response(MovimientoInsumoSerializer(qs[:1000], many=True).data)
+
+
+# ══════════════════════════════════════════════════════════════
+# CU-INV21: Gestión de recetas (RFN41, RFN42)
+# ══════════════════════════════════════════════════════════════
+
+def _normalizar_detalles(detalles):
+    """{id_insumo: cantidad}. Suma los insumos repetidos y descarta líneas
+    vacías o con cantidad <= 0 (la BD rechaza esas filas)."""
+    acumulado = {}
+    for d in detalles or []:
+        try:
+            id_ins = int(d.get('id_insumo'))
+            cant = Decimal(str(d.get('cantidad_por_porcion')))
+        except Exception:
+            continue
+        if cant <= 0:
+            continue
+        acumulado[id_ins] = acumulado.get(id_ins, Decimal('0')) + cant
+    return acumulado
+
+
+def _escribir_detalles(receta, ingredientes):
+    insumos = Insumo.objects.in_bulk(list(ingredientes))
+    receta.detalles.all().delete()
+    DetalleReceta.objects.bulk_create([
+        DetalleReceta(id_receta=receta, id_insumo=insumos[i],
+                      cantidad_por_porcion=c.quantize(Decimal('0.0001')))
+        for i, c in ingredientes.items() if i in insumos])
+
+
+def _notificar_cocineros(receta, mensaje):
+    for cocinero in Usuario.objects.filter(Rol='cocinero', Activo=True):
+        NotificacionReceta.objects.create(
+            mensaje=mensaje, id_receta=receta, id_usuario=cocinero)
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def recetas(request):
+    if request.method == 'GET':
+        qs = Receta.objects.filter(activa=True)
+        return Response(RecetaSerializer(qs, many=True).data)
+
+    if request.user.Rol != 'administrador':
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    try:
+        producto = Producto.objects.get(pk=request.data.get('id_producto'))
+    except (Producto.DoesNotExist, ValueError, TypeError):
+        return Response({'error': 'Producto no encontrado'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    ingredientes = _normalizar_detalles(request.data.get('detalles'))
+    if not ingredientes:
+        return Response(
+            {'error': 'Agrega al menos un ingrediente con cantidad mayor a 0'},
+            status=status.HTTP_400_BAD_REQUEST)
+    descripcion = request.data.get('descripcion', '')
+
+    with transaction.atomic():          # o se guarda todo o no se guarda nada
+        # get_or_create es seguro ante doble clic: si dos peticiones llegan
+        # a la vez, la segunda recupera la fila en vez de duplicarla.
+        receta, creada = Receta.objects.get_or_create(
+            id_producto=producto,
+            defaults={'descripcion': descripcion, 'activa': True})
+        if not creada:
+            if receta.activa:
+                return Response(
+                    {'error': 'Este producto ya tiene una receta. '
+                              'Edítala desde la lista.'},
+                    status=status.HTTP_400_BAD_REQUEST)
+            receta.activa = True            # estaba desactivada → se reactiva
+            receta.descripcion = descripcion
+            receta.save()
+        _escribir_detalles(receta, ingredientes)
+        _notificar_cocineros(receta, f'Nueva receta creada: {producto.nombre}')
+
+    return Response(RecetaSerializer(receta).data,
+                    status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET', 'PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def receta_detalle(request, pk):
+    try:
+        receta = Receta.objects.get(pk=pk)
+    except Receta.DoesNotExist:
+        return Response({'error': 'Receta no encontrada'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        return Response(RecetaSerializer(receta).data)
+
+    if request.user.Rol != 'administrador':
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    if request.method == 'PUT':
+        ingredientes = None
+        if 'detalles' in request.data:
+            ingredientes = _normalizar_detalles(request.data['detalles'])
+            if not ingredientes:
+                return Response(
+                    {'error': 'La receta necesita al menos un ingrediente '
+                              'con cantidad mayor a 0'},
+                    status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            if 'descripcion' in request.data:
+                receta.descripcion = request.data['descripcion']
+            if ingredientes is not None:
+                _escribir_detalles(receta, ingredientes)
+            receta.save()
+            _notificar_cocineros(
+                receta, f'Receta actualizada: {receta.id_producto.nombre}')
+        return Response(RecetaSerializer(receta).data)
+
+    receta.activa = False               # DELETE
+    receta.save()
+    return Response({'mensaje': 'Receta desactivada'})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def mis_notificaciones_receta(request):
+    """Notificaciones de receta para el cocinero autenticado."""
+    qs = NotificacionReceta.objects.filter(
+        id_usuario=request.user, leida=False
+    )
+    return Response(NotificacionRecetaSerializer(qs, many=True).data)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def marcar_notificacion_leida(request, pk):
+    try:
+        noti = NotificacionReceta.objects.get(
+            pk=pk, id_usuario=request.user
+        )
+    except NotificacionReceta.DoesNotExist:
+        return Response({'error': 'Notificación no encontrada'},
+                        status=status.HTTP_404_NOT_FOUND)
+    noti.leida = True
+    noti.save()
+    return Response({'mensaje': 'Notificación marcada como leída'})
+
+
+# ══════════════════════════════════════════════════════════════
+# CU-INV24: Prevención de insumos (RFN44, RFN45)
+# ══════════════════════════════════════════════════════════════
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def disponibilidad_por_receta(request):
+    """Cuántos platos pueden prepararse con el stock actual (RFN44)."""
+    recetas = Receta.objects.filter(activa=True).prefetch_related(
+        'detalles', 'detalles__id_insumo'
+    )
+    resultado = []
+    for receta in recetas:
+        porciones_posibles = None
+        alertas = []
+        for detalle in receta.detalles.all():
+            insumo = detalle.id_insumo
+            if detalle.cantidad_por_porcion > 0:
+                posibles = int(
+                    insumo.stock_utilizacion / detalle.cantidad_por_porcion
+                )
+                if porciones_posibles is None or posibles < porciones_posibles:
+                    porciones_posibles = posibles
+                if posibles <= 5:
+                    alertas.append({
+                        'insumo':    insumo.nombre,
+                        'stock':     str(insumo.stock_utilizacion),
+                        'unidad':    insumo.unidad_medida,
+                        'porciones': posibles,
+                    })
+
+        resultado.append({
+            'id_receta':         receta.id_receta,
+            'producto':          receta.id_producto.nombre,
+            'porciones_posibles': porciones_posibles or 0,
+            'alerta_escasez':    len(alertas) > 0,
+            'alertas':           alertas,
+        })
+
+    return Response(resultado)
+
+
+# ══════════════════════════════════════════════════════════════
+# CU-INV23: Registros de fin del día (RFN46, RFN48)
+# ══════════════════════════════════════════════════════════════
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def mermas(request):
+    if request.method == 'GET':
+        qs = filtrar_por_fechas(
+        Merma.objects.select_related('id_insumo'), request, 'fecha_registro')
+        return Response(MermaSerializer(qs[:1000], many=True).data)
+
+    if request.method == 'POST':
+        if request.user.Rol not in ('administrador', 'cocinero'):
+            return Response({'error': 'Sin permisos'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        serializer = MermaSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(id_usuario=request.user)
+            return Response(serializer.data,
+                            status=status.HTTP_201_CREATED)
+        return Response(serializer.errors,
+                        status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_insumos(request):
+    """Dashboard de insumos del día (RFN48)."""
+    if request.user.Rol not in ('administrador', 'cocinero'):
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    hoy = timezone.now().date()
+    movimientos_hoy = MovimientoInsumo.objects.filter(
+        fecha_movimiento__date=hoy
+    )
+
+    from decimal import Decimal
+    total_ingresado = sum(
+        m.cantidad for m in movimientos_hoy
+        if m.tipo_movimiento == 'entrada'
+    )
+    total_utilizado = sum(
+        m.cantidad for m in movimientos_hoy
+        if m.tipo_movimiento == 'utilizado'
+    )
+    total_desperdiciado = sum(
+        m.cantidad for m in movimientos_hoy
+        if m.tipo_movimiento == 'desperdiciado'
+    )
+    total_movido = sum(
+        m.cantidad for m in movimientos_hoy
+        if m.tipo_movimiento == 'almacen_a_utilizacion'
+    )
+
+    insumos_activos = Insumo.objects.filter(activo=True)
+    alertas = [
+        InsumoSerializer(i).data
+        for i in insumos_activos
+        if i.stock_almacen <= i.stock_minimo
+    ]
+
+    mermas_hoy = Merma.objects.filter(fecha_registro__date=hoy)
+
+    return Response({
+        'fecha':               str(hoy),
+        'total_ingresado':     str(total_ingresado),
+        'total_utilizado':     str(total_utilizado),
+        'total_desperdiciado': str(total_desperdiciado),
+        'total_movido':        str(total_movido),
+        'total_insumos':       insumos_activos.count(),
+        'alertas_stock':       alertas,
+        'total_alertas':       len(alertas),
+        'mermas_hoy':          MermaSerializer(
+                                mermas_hoy, many=True).data,
+    })
+
+
+#--------Historial Global--------
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def historial_global(request):
+    if request.user.Rol != 'administrador':
+        return Response({'error': 'Sin permisos'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    p      = request.query_params
+    modulo = p.get('modulo', 'todos')
+    buscar = (p.get('buscar') or '').lower().strip()
+    pagina = max(int(p.get('page', 1) or 1), 1)
+    tam    = min(int(p.get('page_size', 50) or 50), 5000)
+    LIMITE = 1000                       # filas máximas por módulo
+
+    eventos, resumen, errores = [], {}, {}
+
+    def quien(u):
+        if not u:
+            return '—'
+        n = f"{getattr(u, 'Nombre', '')} {getattr(u, 'Apellido', '')}".strip()
+        return n or getattr(u, 'username', '—')
+
+    def mesa_de(ped):
+        try:
+            return ped.id_mesa.identificador_mesa
+        except Exception:
+            return '—'
+
+    def ev(mod, pk, fecha, titulo, detalle='', usuario='—',
+           estado='', monto=None):
+        return {
+            'key': f'{mod}-{pk}', 'modulo': mod,
+            'fecha': fecha.isoformat() if fecha else None,
+            'titulo': titulo, 'detalle': detalle, 'usuario': usuario,
+            'estado': estado,
+            'monto': float(monto) if monto is not None else None,
+        }
+
+    def agregar(mod, qs, fn):
+        # 'cocina' es un subconjunto de 'pedidos': solo se lista si se elige
+        listar = modulo == mod or (modulo == 'todos' and mod != 'cocina')
+        try:
+            with transaction.atomic():      # un módulo con error no tumba a los demás
+                resumen[mod] = qs.count()   # siempre: alimenta los contadores
+                filas = list(qs[:LIMITE]) if listar else []
+        except Exception as e:
+            errores[mod] = str(e).split('\n')[0][:200]
+            return
+        for obj in filas:
+            try:
+                eventos.append(fn(obj))
+            except Exception:
+                continue    # una fila incompleta no debe tumbar el historial
+
+    F = lambda qs, campo: filtrar_por_fechas(qs, request, campo, 'todo')
+
+    # ── Pedidos y cocina ──────────────────────────────────────
+    base_ped = Pedido.objects.select_related('id_mesa', 'id_usuario') \
+                             .prefetch_related('detalles__id_producto')
+
+    def items(o):
+        return [f"{d.cantidad}x {d.id_producto.nombre}"
+                for d in o.detalles.all() if d.id_producto]
+
+    def f_pedido(o):
+        total = sum(d.cantidad * d.id_producto.precio
+                    for d in o.detalles.all() if d.id_producto)
+        return ev('pedidos', o.id_pedidos, o.tiempo_creacion,
+                  f"Pedido #{o.id_pedidos} · Mesa {mesa_de(o)}",
+                  ', '.join(items(o)), quien(o.id_usuario),
+                  o.estado, total)
+
+    def f_cocina(o):
+        return ev('cocina', o.id_pedidos, o.tiempo_creacion,
+                  f"Producción · Mesa {mesa_de(o)}",
+                  ', '.join(items(o)), quien(o.id_usuario), o.estado)
+
+    agregar('pedidos', F(base_ped, 'tiempo_creacion'), f_pedido)
+    agregar('cocina',
+            F(base_ped.filter(estado__in=['listo', 'despachado', 'pagado']),
+              'tiempo_creacion'), f_cocina)
+
+    # ── Caja ──────────────────────────────────────────────────
+    def f_pago(o):
+        return ev('pagos', o.id_pago, o.fecha_cobro,
+                  f"Pago #{o.id_pago} · Mesa {mesa_de(o.id_pedidos)}",
+                  f"{o.metodo_pago} · {o.tipo_comprobante}",
+                  quien(o.id), o.estado, o.monto_total)
+
+    agregar('pagos',
+            F(Pago.objects.select_related('id_pedidos__id_mesa'),
+              'fecha_cobro'), f_pago)
+
+    # ── Reclamos ──────────────────────────────────────────────
+    agregar('reclamos',
+            F(Reclamo.objects.select_related('id_usuario'),
+              'tiempo_creacion'),
+            lambda o: ev('reclamos', o.id_reclamo, o.tiempo_creacion,
+                         f"{o.tipo.capitalize()} #{o.id_reclamo}",
+                         o.descripcion, quien(o.id_usuario), o.estado))
+
+    # ── Inventario ────────────────────────────────────────────
+    agregar('movimientos',
+            F(MovimientoInsumo.objects.select_related('id_insumo',
+                                                      'id_usuario'),
+              'fecha_movimiento'),
+            lambda o: ev('movimientos', o.id_movimiento, o.fecha_movimiento,
+                         f"{o.get_tipo_movimiento_display()} · "
+                         f"{o.id_insumo.nombre}",
+                         f"{o.cantidad} {o.id_insumo.unidad_medida}"
+                         + (f" — {o.motivo}" if o.motivo else ''),
+                         quien(o.id_usuario), o.tipo_movimiento))
+
+    agregar('pedidos_insumo',
+            F(PedidoInsumo.objects.select_related('id_usuario')
+                                  .prefetch_related('detalles__id_insumo'),
+              'fecha_solicitado'),
+            lambda o: ev('pedidos_insumo', o.id_pedido_insumo,
+                         o.fecha_solicitado,
+                         f"Compra {o.tipo_pedido} · {o.distribuidora}",
+                         ', '.join(f"{d.id_insumo.nombre}: "
+                                   f"{d.cantidad_solicitada}"
+                                   for d in o.detalles.all())
+                         + (f" · espera {o.minutos_espera} min"
+                            if o.minutos_espera is not None else ''),
+                         quien(o.id_usuario), o.estado_entrega))
+
+    agregar('mermas',
+            F(Merma.objects.select_related('id_insumo', 'id_usuario'),
+              'fecha_registro'),
+            lambda o: ev('mermas', o.id_merma, o.fecha_registro,
+                         f"Merma ({o.tipo_merma}) · {o.id_insumo.nombre}",
+                         f"{o.cantidad} {o.id_insumo.unidad_medida}"
+                         + (f" — {o.motivo}" if o.motivo else ''),
+                         quien(o.id_usuario), o.tipo_merma))
+
+    def f_turno(o):
+        cierre = (f" → cerrado {timezone.localtime(o.hora_cierre):%H:%M}"
+                  if o.hora_cierre else '')
+        return ev('turnos', o.id_turno, o.hora_inicio, f"Turno {o.fecha}",
+                  f"abierto {timezone.localtime(o.hora_inicio):%H:%M}{cierre}",
+                  quien(o.id_usuario_apertura), o.estado)
+
+    agregar('turnos',
+            F(TurnoDia.objects.select_related('id_usuario_apertura'),
+              'hora_inicio'), f_turno)
+
+    # ── Búsqueda, orden y paginación ──────────────────────────
+    if buscar:
+        eventos = [e for e in eventos if buscar in
+                   f"{e['titulo']} {e['detalle']} {e['usuario']} "
+                   f"{e['estado']}".lower()]
+    eventos.sort(key=lambda e: e['fecha'] or '', reverse=True)
+
+    total = len(eventos)
+    ini   = (pagina - 1) * tam
+    return Response({
+        'total': total, 'page': pagina,
+        'paginas': max(-(-total // tam), 1),
+        'resumen': resumen, 'errores': errores,
+        'limite_por_modulo': LIMITE,
+        'resultados': eventos[ini:ini + tam],
+    })
