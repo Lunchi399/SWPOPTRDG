@@ -59,5 +59,17 @@ urlpatterns = [
 
     #---------- Historial Global ----------------------------------------    
     path('historial-global/',                  views.historial_global,         name='historial-global'),
-
+    path('proyecciones/dashboard/',          views.dashboard_proyecciones,      name='proy-dashboard'),
+    path('proyecciones/demanda/',            views.proyeccion_demanda,          name='proy-demanda'),
+    path('proyecciones/consumo-insumos/',    views.proyeccion_consumo,          name='proy-consumo'),
+    path('proyecciones/gasto-compras/',      views.proyeccion_gasto,            name='proy-gasto'),
+    path('proyecciones/rentabilidad/',       views.reporte_rentabilidad,        name='proy-rentabilidad'),
+    path('proyecciones/alertas-rentabilidad/', views.alertas_rentabilidad,      name='proy-alertas'),
+    path('proyecciones/finanzas/',           views.reporte_financiero,          name='proy-finanzas'),
+    path('proyecciones/plan-compras/',       views.plan_compras,                name='proy-plan'),
+    path('proyecciones/configuracion/',      views.configuracion,               name='proy-config'),
+    path('proyecciones/guardadas/',          views.proyecciones_guardadas,      name='proy-guardadas'),
+    path('proyecciones/guardadas/<int:pk>/', views.proyeccion_guardada_detalle, name='proy-guardada-detalle'),
+    path('precios-insumo/',                  views.precios_insumo,              name='precios-insumo'),
+    path('precios-insumo/<int:pk>/historial/', views.historial_precios,         name='historial-precios'),
 ]

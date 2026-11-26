@@ -12,6 +12,7 @@ import { isAuthenticated } from './Services/authService';
 import { getRol } from './Services/authService';
 import Inventario from './pages/admin/Inventario';
 import Historial from './pages/admin/Historial';
+import Proyecciones from './pages/admin/Proyecciones';
 
 function RutaPrivada({ children, rolRequerido }) {
   if (!isAuthenticated()) return <Navigate to="/login" />;
@@ -73,6 +74,7 @@ function App() {
             </RutaPrivada>
           }
         />
+        
 
         <Route path="/admin/inventario"
           element={
@@ -82,7 +84,12 @@ function App() {
           }
           />
           <Route path="/admin/historial"
-  element={<RutaPrivada rolRequerido="administrador"><Historial /></RutaPrivada>} />
+            element={
+            <RutaPrivada rolRequerido="administrador"><Historial /></RutaPrivada>} />
+          
+          
+          <Route path="/admin/proyecciones"
+          element={<RutaPrivada rolRequerido="administrador"><Proyecciones /></RutaPrivada>} />
 
         {/* Mesero */}
         <Route path="/mesero/mesas"

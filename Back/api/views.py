@@ -1,5 +1,5 @@
 from rest_framework.decorators import api_view, permission_classes
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
@@ -8,6 +8,15 @@ from django.contrib.auth import authenticate
 from django.utils import timezone
 from api.backends import UsuarioBackend
 from django.db import transaction
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from django.http import HttpResponse
+from . import proyecciones as px
+from .models import Insumo, PrecioCompraInsumo, ProyeccionGuardada
+from .permissions import EsAdministrador
+
 
 from .models import (Usuario, Producto, Mesas, Pedido,
                     DetallePedido, Pago, DetallePago,
@@ -1871,3 +1880,204 @@ def historial_global(request):
         'limite_por_modulo': LIMITE,
         'resultados': eventos[ini:ini + tam],
     })
+ADMIN = [IsAuthenticated, EsAdministrador]
+
+
+def _error(msg, code=status.HTTP_400_BAD_REQUEST):
+    return Response({'error': msg}, status=code)
+
+
+def _quien(u):
+    if not u:
+        return '—'
+    return f"{u.Nombre} {u.Apellido}".strip() or u.username
+
+
+def _csv_response(plan, nombre):
+    resp = HttpResponse(px.plan_a_csv(plan),
+                        content_type='text/csv; charset=utf-8')
+    resp['Content-Disposition'] = f'attachment; filename="{nombre}.csv"'
+    return resp
+
+
+# ══════════════════════════════════════════════════════════════
+# RFN49 – RFN53, RFN55 — reportes calculados al momento
+# ══════════════════════════════════════════════════════════════
+def _vista_reporte(tipo):
+    @api_view(['GET'])
+    @permission_classes(ADMIN)
+    def vista(request):
+        try:
+            params = px.normalizar_parametros(tipo, request.query_params)
+        except ValueError as e:
+            return _error(str(e))
+        data = px.GENERADORES[tipo](params)
+        if tipo == 'compras' and request.query_params.get('formato') == 'csv':   # RFN60
+            return _csv_response(data, f'plan_compras_{px.hoy_local()}')
+        return Response(data)
+    vista.__name__ = f'proyeccion_{tipo}'
+    return vista
+
+
+proyeccion_demanda   = _vista_reporte('demanda')       # RFN49
+proyeccion_consumo   = _vista_reporte('consumo')       # RFN50
+proyeccion_gasto     = _vista_reporte('gasto')         # RFN51
+reporte_rentabilidad = _vista_reporte('rentabilidad')  # RFN52
+reporte_financiero   = _vista_reporte('financiero')    # RFN53
+plan_compras         = _vista_reporte('compras')       # RFN55 + RFN60
+
+
+# ══════════════════════════════════════════════════════════════
+# RFN54 — Alertas de platos no rentables + umbral configurable
+# ══════════════════════════════════════════════════════════════
+@api_view(['GET'])
+@permission_classes(ADMIN)
+def alertas_rentabilidad(request):
+    return Response(px.alertas_rentabilidad())
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes(ADMIN)
+def configuracion(request):
+    cfg = px.get_config()
+    if request.method == 'PUT':
+        try:
+            if 'margen_minimo_pct' in request.data:
+                m = Decimal(str(request.data['margen_minimo_pct']))
+                if not Decimal('0') <= m < Decimal('100'):
+                    return _error('El margen mínimo debe estar entre 0 y 99.99')
+                cfg.margen_minimo_pct = m
+            if 'factor_seguridad_pct' in request.data:
+                f = Decimal(str(request.data['factor_seguridad_pct']))
+                if not Decimal('0') <= f <= Decimal('100'):
+                    return _error('El factor de seguridad debe estar entre 0 y 100')
+                cfg.factor_seguridad_pct = f
+        except InvalidOperation:
+            return _error('Valores numéricos no válidos')
+        cfg.id_usuario = request.user
+        cfg.save()
+    return Response({'margen_minimo_pct':    float(cfg.margen_minimo_pct),
+                     'factor_seguridad_pct': float(cfg.factor_seguridad_pct),
+                     'fecha_actualizacion':  cfg.fecha_actualizacion})
+
+
+# ══════════════════════════════════════════════════════════════
+# RFN56 — Dashboard de proyecciones
+# ══════════════════════════════════════════════════════════════
+@api_view(['GET'])
+@permission_classes(ADMIN)
+def dashboard_proyecciones(request):
+    try:
+        dias = px._entero(request.query_params, 'dias_historial', 28, 7, 180)
+    except ValueError as e:
+        return _error(str(e))
+    return Response(px.dashboard_proyecciones(dias))
+
+
+# ══════════════════════════════════════════════════════════════
+# RFN57 — Precios de compra de insumos
+# ══════════════════════════════════════════════════════════════
+@api_view(['GET', 'POST'])
+@permission_classes(ADMIN)
+def precios_insumo(request):
+    """GET: precio actual de cada insumo · POST: fija un nuevo precio (rige desde hoy)."""
+    hoy = px.hoy_local()
+    if request.method == 'GET':
+        filas = [{
+            'id_insumo': i.id_insumo, 'nombre': i.nombre,
+            'categoria': i.categoria, 'unidad_medida': i.unidad_medida,
+            'precio_actual': float(i.precio_compra) if i.precio_compra is not None else None,
+            'vigente_desde': i.precio_vigente_desde.isoformat() if i.precio_vigente_desde else None,
+            'sin_precio': i.precio_compra is None,
+        } for i in Insumo.objects.filter(activo=True)]
+        filas.sort(key=lambda r: (not r['sin_precio'], r['nombre'].lower()))
+        return Response({'insumos': filas,
+                         'total_sin_precio': sum(r['sin_precio'] for r in filas)})
+
+    try:
+        insumo = Insumo.objects.get(pk=request.data.get('id_insumo'))
+    except (Insumo.DoesNotExist, ValueError, TypeError):
+        return _error('Insumo no encontrado', status.HTTP_404_NOT_FOUND)
+    try:
+        precio = Decimal(str(request.data.get('precio_unitario')))
+    except InvalidOperation:
+        return _error('Precio no válido')
+    if not precio.is_finite() or not Decimal('0') < precio < Decimal('100000000'):
+        return _error('El precio debe ser mayor a 0')
+
+    cambio = insumo.precio_compra != precio
+    with transaction.atomic():
+        if cambio:      # cada cambio queda en el historial (RFN57)
+            PrecioCompraInsumo.objects.create(id_insumo=insumo,
+                                              precio_unitario=precio,
+                                              fecha_registro=hoy)
+        insumo.precio_compra, insumo.precio_vigente_desde = precio, hoy
+        insumo.save(update_fields=['precio_compra', 'precio_vigente_desde'])
+    return Response({'id_insumo': insumo.id_insumo,
+                     'precio_unitario': float(precio),
+                     'vigente_desde': hoy.isoformat(),
+                     'unidad_medida': insumo.unidad_medida,
+                     'corregido': not cambio})
+
+
+@api_view(['GET'])
+@permission_classes(ADMIN)
+def historial_precios(request, pk):
+    try:
+        insumo = Insumo.objects.get(pk=pk)
+    except Insumo.DoesNotExist:
+        return _error('Insumo no encontrado', status.HTTP_404_NOT_FOUND)
+    qs = PrecioCompraInsumo.objects.filter(id_insumo=insumo)
+    return Response({
+        'insumo': insumo.nombre, 'unidad_medida': insumo.unidad_medida,
+        'historial': [{'id_precio': p.id_precio,
+                       'precio_unitario': float(p.precio_unitario),
+                       'vigente_desde': p.fecha_registro.isoformat()} for p in qs]})
+
+
+# ══════════════════════════════════════════════════════════════
+# RFN61 — Guardar y consultar proyecciones / reportes
+# ══════════════════════════════════════════════════════════════
+def _resumen_guardado(o):
+    return {'id_proyeccion': o.id_proyeccion, 'tipo': o.tipo,
+            'tipo_nombre': px.NOMBRES_TIPO.get(o.tipo, o.tipo),
+            'titulo': o.titulo, 'parametros': o.parametros,
+            'fecha_creacion': o.fecha_creacion,
+            'usuario': _quien(o.id_usuario)}
+
+
+@api_view(['GET', 'POST'])
+@permission_classes(ADMIN)
+def proyecciones_guardadas(request):
+    if request.method == 'GET':
+        qs = ProyeccionGuardada.objects.select_related('id_usuario')
+        if request.query_params.get('tipo'):
+            qs = qs.filter(tipo=request.query_params['tipo'])
+        return Response([_resumen_guardado(o) for o in qs[:200]])
+
+    tipo = request.data.get('tipo')
+    try:
+        params = px.normalizar_parametros(tipo, request.data.get('parametros'))
+    except ValueError as e:
+        return _error(str(e))
+    # Se recalcula en el servidor: lo guardado es la fuente oficial
+    resultado = px.GENERADORES[tipo](params)
+    titulo = ((request.data.get('titulo') or '').strip()
+              or f"{px.NOMBRES_TIPO[tipo]} · {px.hoy_local():%d/%m/%Y}")
+    obj = ProyeccionGuardada.objects.create(
+        tipo=tipo, titulo=titulo[:150], parametros=params,
+        resultado=resultado, id_usuario=request.user)
+    return Response(_resumen_guardado(obj), status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes(ADMIN)
+def proyeccion_guardada_detalle(request, pk):
+    try:
+        obj = ProyeccionGuardada.objects.select_related('id_usuario').get(pk=pk)
+    except ProyeccionGuardada.DoesNotExist:
+        return _error('No encontrada', status.HTTP_404_NOT_FOUND)
+    if obj.tipo == 'compras' and request.query_params.get('formato') == 'csv':
+        return _csv_response(obj.resultado, f'plan_compras_{obj.id_proyeccion}')
+    return Response({**_resumen_guardado(obj), 'resultado': obj.resultado})
+    

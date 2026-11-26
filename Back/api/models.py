@@ -387,6 +387,9 @@ class Insumo(models.Model):
     unidad_medida     = models.CharField(max_length=30)
     tipo_almacenaje   = models.CharField(max_length=30,
                                          choices=ALMACENAJE_CHOICES)
+    precio_compra        = models.DecimalField(max_digits=12, decimal_places=4,
+                                               null=True, blank=True)
+    precio_vigente_desde = models.DateField(null=True, blank=True)
     stock_almacen     = models.DecimalField(max_digits=10,
                                             decimal_places=2, default=0)
     stock_utilizacion = models.DecimalField(max_digits=10,
@@ -586,3 +589,66 @@ class Merma(models.Model):
         db_table = 'merma'
         managed  = False
         ordering = ['-fecha_registro']
+
+
+class PrecioCompraInsumo(models.Model):
+    """
+    RFN57 — historial de precios de compra (tabla ya existente en Supabase).
+    El precio ACTUAL vive en insumo.precio_compra; aquí queda cada cambio
+    para valorizar compras, mermas y recetas pasadas con el precio de su fecha.
+    """
+    id_precio       = models.AutoField(primary_key=True)
+    precio_unitario = models.DecimalField(max_digits=12, decimal_places=4)
+    fecha_registro  = models.DateField()
+    id_insumo       = models.ForeignKey(Insumo, on_delete=models.CASCADE,
+                                        db_column='id_insumo',
+                                        related_name='historial_precios')
+
+    class Meta:
+        db_table = 'precio_compra_insumo'
+        managed  = False
+        ordering = ['id_insumo', '-fecha_registro', '-id_precio']
+
+
+class ConfigProyeccion(models.Model):
+    """RFN54 — umbral de margen y factor de seguridad (fila única, id=1)."""
+    id_config            = models.IntegerField(primary_key=True, default=1)
+    margen_minimo_pct    = models.DecimalField(max_digits=5, decimal_places=2,
+                                               default=30)
+    factor_seguridad_pct = models.DecimalField(max_digits=5, decimal_places=2,
+                                               default=10)
+    fecha_actualizacion  = models.DateTimeField(auto_now=True)
+    id_usuario           = models.ForeignKey('Usuario',
+                                             on_delete=models.SET_NULL,
+                                             null=True, blank=True,
+                                             db_column='id_usuario',
+                                             related_name='+')
+
+    class Meta:
+        db_table = 'config_proyeccion'
+        managed  = False
+
+class ProyeccionGuardada(models.Model):
+    """RFN61 — instantánea de una proyección/reporte con sus parámetros."""
+    TIPO_CHOICES = [
+        ('demanda',      'Proyección de demanda'),
+        ('consumo',      'Proyección de consumo de insumos'),
+        ('gasto',        'Estimación de gasto en compras'),
+        ('rentabilidad', 'Reporte de rentabilidad'),
+        ('financiero',   'Reporte de ingresos y gastos'),
+        ('compras',      'Plan de compras'),
+    ]
+    id_proyeccion  = models.AutoField(primary_key=True)
+    tipo           = models.CharField(max_length=20, choices=TIPO_CHOICES)
+    titulo         = models.CharField(max_length=150)
+    parametros     = models.JSONField(default=dict)
+    resultado      = models.JSONField()
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    id_usuario     = models.ForeignKey('Usuario', on_delete=models.SET_NULL,
+                                       null=True, db_column='id_usuario',
+                                       related_name='proyecciones_guardadas')
+
+    class Meta:
+        db_table = 'proyeccion_guardada'
+        managed  = False
+        ordering = ['-fecha_creacion']
